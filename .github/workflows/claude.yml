@@ -1,4 +1,4 @@
- name: Claude Code Action
+  name: Claude Code Action
 
   on:
     issue_comment:
