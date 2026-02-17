@@ -2,12 +2,15 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import {
+  Home,
   LayoutGrid,
   MessageSquare,
   CheckSquare,
   Clock,
   Settings,
+  Command,
 } from "lucide-react";
+import { ClientProviders, TimerWidget } from "@/components/ClientProviders";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,6 +29,7 @@ export const metadata: Metadata = {
 };
 
 const navItems = [
+  { href: "/", label: "대시보드", icon: Home },
   { href: "/categories", label: "카테고리", icon: LayoutGrid },
   { href: "/history", label: "대화", icon: MessageSquare },
   { href: "/todos", label: "할일", icon: CheckSquare },
@@ -64,18 +68,29 @@ export default function RootLayout({
                 </Link>
               ))}
             </nav>
-            <div className="p-4 border-t border-sidebar-border">
-              <p className="text-xs text-muted-foreground">v2.0 &middot; Telegram + Claude</p>
+            <div className="p-3 border-t border-sidebar-border space-y-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Command className="w-3 h-3" />
+                <span>Ctrl+K 명령 팔레트</span>
+              </div>
+              <p className="text-xs text-muted-foreground">v2.1 &middot; Web + Telegram + Claude</p>
             </div>
           </aside>
 
           {/* Main Content */}
           <main className="flex-1 overflow-auto">
+            {/* Header bar with timer */}
+            <div className="border-b border-border px-6 py-2 flex items-center justify-end">
+              <TimerWidget />
+            </div>
             <div className="max-w-6xl mx-auto px-6 py-6">
               {children}
             </div>
           </main>
         </div>
+
+        {/* Client-side overlays: Command Palette + Chat Sidebar */}
+        <ClientProviders />
       </body>
     </html>
   );

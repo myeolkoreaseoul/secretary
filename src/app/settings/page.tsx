@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Pencil, Trash2, Save, X } from "lucide-react";
+import { Pencil, Trash2, Save, X, Plus } from "lucide-react";
 import type { Category } from "@/types";
 
 export default function SettingsPage() {
@@ -21,19 +21,19 @@ export default function SettingsPage() {
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("");
 
+  // New category form
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState("#6b7280");
+  const [newDescription, setNewDescription] = useState("");
+  const [adding, setAdding] = useState(false);
+
   const fetchCategories = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/categories?select=*&order=name`,
-        {
-          headers: {
-            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
-          },
-        }
-      );
+      const res = await fetch("/api/categories");
       const json = await res.json();
-      setCategories(json || []);
+      setCategories(json.categories || []);
     } finally {
       setLoading(false);
     }
@@ -76,6 +76,35 @@ export default function SettingsPage() {
     fetchCategories();
   };
 
+  const addCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setAdding(true);
+    try {
+      const res = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newName.trim(),
+          color: newColor,
+          description: newDescription.trim() || null,
+        }),
+      });
+      if (res.ok) {
+        setNewName("");
+        setNewColor("#6b7280");
+        setNewDescription("");
+        setShowAdd(false);
+        fetchCategories();
+      } else {
+        const json = await res.json();
+        alert(json.error || "추가에 실패했습니다");
+      }
+    } finally {
+      setAdding(false);
+    }
+  };
+
   return (
     <div>
       <div className="mb-6">
@@ -87,9 +116,58 @@ export default function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">카테고리 관리</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm">카테고리 관리</CardTitle>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowAdd(!showAdd)}
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              추가
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
+          {/* Add form */}
+          {showAdd && (
+            <form onSubmit={addCategory} className="mb-4 p-3 border border-border rounded-md space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={newColor}
+                  onChange={(e) => setNewColor(e.target.value)}
+                  className="w-8 h-8 rounded border border-input cursor-pointer"
+                />
+                <Input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="카테고리 이름"
+                  className="flex-1"
+                  autoFocus
+                />
+              </div>
+              <Input
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                placeholder="설명 (선택)"
+              />
+              <div className="flex gap-2 justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowAdd(false)}
+                >
+                  취소
+                </Button>
+                <Button type="submit" size="sm" disabled={adding}>
+                  {adding ? "추가 중..." : "추가"}
+                </Button>
+              </div>
+            </form>
+          )}
+
           {loading ? (
             <p className="text-sm text-muted-foreground">로딩중...</p>
           ) : (
@@ -172,12 +250,12 @@ export default function SettingsPage() {
         <CardContent className="space-y-2">
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">버전</span>
-            <span>v2.0</span>
+            <span>v2.1</span>
           </div>
           <Separator />
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">아키텍처</span>
-            <span>Telegram + Claude CLI + MCP</span>
+            <span>Web + Telegram + Claude</span>
           </div>
           <Separator />
           <div className="flex justify-between text-sm">
@@ -188,6 +266,11 @@ export default function SettingsPage() {
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">데이터베이스</span>
             <span>Supabase (PostgreSQL + pgvector)</span>
+          </div>
+          <Separator />
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">기능</span>
+            <span>채팅, 타이머, 계획, 커맨드 팔레트</span>
           </div>
         </CardContent>
       </Card>

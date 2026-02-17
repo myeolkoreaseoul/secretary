@@ -11,20 +11,35 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, CheckCircle, Circle } from "lucide-react";
+import { Plus, Trash2, CheckCircle, Circle, Pencil, Save, X, ChevronDown } from "lucide-react";
 import type { Todo, Category } from "@/types";
 
 const priorityLabels: Record<number, { label: string; color: string }> = {
-  0: { label: "보통", color: "secondary" },
-  1: { label: "중요", color: "default" },
-  2: { label: "긴급", color: "destructive" },
-  3: { label: "매우긴급", color: "destructive" },
+  0: { label: "P0 보통", color: "secondary" },
+  1: { label: "P1 중요", color: "default" },
+  2: { label: "P2 긴급", color: "destructive" },
+  3: { label: "P3 매우긴급", color: "destructive" },
 };
+
+const CATEGORIES_FALLBACK = [
+  "업무",
+  "개발",
+  "건강",
+  "가족",
+  "소개팅비즈니스",
+  "온라인판매",
+  "기타",
+];
 
 export default function TodosPage() {
   const [todos, setTodos] = useState<(Todo & { category?: Category })[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState("");
+  const [newPriority, setNewPriority] = useState(0);
+  const [newDueDate, setNewDueDate] = useState("");
+  const [newCategoryId, setNewCategoryId] = useState("");
+  const [showForm, setShowForm] = useState(false);
 
   const fetchTodos = useCallback(async () => {
     setLoading(true);
@@ -37,9 +52,27 @@ export default function TodosPage() {
     }
   }, []);
 
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/categories?select=*&order=name`,
+        {
+          headers: {
+            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+          },
+        }
+      );
+      const json = await res.json();
+      setCategories(json || []);
+    } catch {
+      // Fallback
+    }
+  }, []);
+
   useEffect(() => {
     fetchTodos();
-  }, [fetchTodos]);
+    fetchCategories();
+  }, [fetchTodos, fetchCategories]);
 
   const addTodo = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,9 +81,18 @@ export default function TodosPage() {
     await fetch("/api/todos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: newTitle.trim() }),
+      body: JSON.stringify({
+        title: newTitle.trim(),
+        priority: newPriority,
+        due_date: newDueDate || null,
+        category_id: newCategoryId || null,
+      }),
     });
     setNewTitle("");
+    setNewPriority(0);
+    setNewDueDate("");
+    setNewCategoryId("");
+    setShowForm(false);
     fetchTodos();
   };
 
@@ -68,6 +110,15 @@ export default function TodosPage() {
     fetchTodos();
   };
 
+  const updateTodo = async (id: string, updates: Record<string, unknown>) => {
+    await fetch("/api/todos", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, ...updates }),
+    });
+    fetchTodos();
+  };
+
   const activeTodos = todos.filter((t) => !t.is_done);
   const doneTodos = todos.filter((t) => t.is_done);
 
@@ -80,18 +131,63 @@ export default function TodosPage() {
         </p>
       </div>
 
-      {/* Add Todo */}
-      <form onSubmit={addTodo} className="flex gap-2 mb-6">
-        <Input
-          placeholder="새 할일 추가..."
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          className="max-w-md"
-        />
-        <Button type="submit" size="sm">
-          <Plus className="w-4 h-4" />
-          추가
-        </Button>
+      {/* Quick Add */}
+      <form onSubmit={addTodo} className="mb-4">
+        <div className="flex gap-2">
+          <Input
+            placeholder="새 할일 추가..."
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            className="max-w-md"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setShowForm(!showForm)}
+          >
+            <ChevronDown className={`w-4 h-4 transition-transform ${showForm ? "rotate-180" : ""}`} />
+          </Button>
+          <Button type="submit" size="sm">
+            <Plus className="w-4 h-4" />
+            추가
+          </Button>
+        </div>
+
+        {/* Expanded form */}
+        {showForm && (
+          <div className="flex gap-2 mt-2 flex-wrap">
+            <select
+              value={newPriority}
+              onChange={(e) => setNewPriority(Number(e.target.value))}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value={0}>P0 보통</option>
+              <option value={1}>P1 중요</option>
+              <option value={2}>P2 긴급</option>
+              <option value={3}>P3 매우긴급</option>
+            </select>
+            <Input
+              type="date"
+              value={newDueDate}
+              onChange={(e) => setNewDueDate(e.target.value)}
+              className="w-auto"
+              placeholder="마감일"
+            />
+            <select
+              value={newCategoryId}
+              onChange={(e) => setNewCategoryId(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="">카테고리 없음</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </form>
 
       {loading ? (
@@ -117,8 +213,10 @@ export default function TodosPage() {
                   <TodoItem
                     key={todo.id}
                     todo={todo}
+                    categories={categories}
                     onToggle={toggleTodo}
                     onDelete={deleteTodo}
+                    onUpdate={updateTodo}
                   />
                 ))}
               </div>
@@ -136,8 +234,10 @@ export default function TodosPage() {
                   <TodoItem
                     key={todo.id}
                     todo={todo}
+                    categories={categories}
                     onToggle={toggleTodo}
                     onDelete={deleteTodo}
+                    onUpdate={updateTodo}
                   />
                 ))}
               </div>
@@ -151,14 +251,92 @@ export default function TodosPage() {
 
 function TodoItem({
   todo,
+  categories,
   onToggle,
   onDelete,
+  onUpdate,
 }: {
   todo: Todo & { category?: Category };
+  categories: Category[];
   onToggle: (id: string, isDone: boolean) => void;
   onDelete: (id: string) => void;
+  onUpdate: (id: string, updates: Record<string, unknown>) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(todo.title);
+  const [editPriority, setEditPriority] = useState(todo.priority);
+  const [editDueDate, setEditDueDate] = useState(todo.due_date || "");
+  const [editCategoryId, setEditCategoryId] = useState(todo.category_id || "");
   const priority = priorityLabels[todo.priority] || priorityLabels[0];
+
+  const save = () => {
+    onUpdate(todo.id, {
+      title: editTitle,
+      priority: editPriority,
+      due_date: editDueDate || null,
+      category_id: editCategoryId || null,
+    });
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <Card>
+        <CardContent className="py-3 space-y-2">
+          <Input
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+              if (e.key === "Escape") setEditing(false);
+            }}
+            autoFocus
+          />
+          <div className="flex gap-2 flex-wrap">
+            <select
+              value={editPriority}
+              onChange={(e) => setEditPriority(Number(e.target.value))}
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            >
+              <option value={0}>P0 보통</option>
+              <option value={1}>P1 중요</option>
+              <option value={2}>P2 긴급</option>
+              <option value={3}>P3 매우긴급</option>
+            </select>
+            <Input
+              type="date"
+              value={editDueDate}
+              onChange={(e) => setEditDueDate(e.target.value)}
+              className="w-auto h-8 text-xs"
+            />
+            <select
+              value={editCategoryId}
+              onChange={(e) => setEditCategoryId(e.target.value)}
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            >
+              <option value="">카테고리 없음</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
+            <Button size="sm" variant="ghost" onClick={save} className="h-8">
+              <Save className="w-3 h-3" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setEditing(false)}
+              className="h-8"
+            >
+              <X className="w-3 h-3" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className={todo.is_done ? "opacity-60" : ""}>
@@ -181,7 +359,7 @@ function TodoItem({
           >
             {todo.title}
           </CardTitle>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
             {todo.priority > 0 && (
               <Badge
                 variant={
@@ -197,6 +375,11 @@ function TodoItem({
                 {todo.due_date}
               </span>
             )}
+            {todo.category && (
+              <Badge variant="outline" className="text-[10px]">
+                {todo.category.name}
+              </Badge>
+            )}
             {todo.source !== "web" && (
               <Badge variant="outline" className="text-[10px]">
                 {todo.source}
@@ -204,6 +387,12 @@ function TodoItem({
             )}
           </div>
         </div>
+        <button
+          onClick={() => setEditing(true)}
+          className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
         <button
           onClick={() => onDelete(todo.id)}
           className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"

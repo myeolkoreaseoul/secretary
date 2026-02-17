@@ -45,3 +45,48 @@ export async function GET(request: NextRequest) {
     totalPages: Math.ceil((count || 0) / limit),
   });
 }
+
+export async function PATCH(request: NextRequest) {
+  const body = await request.json();
+  const { id, content } = body;
+
+  if (!id) {
+    return NextResponse.json({ error: "id is required" }, { status: 400 });
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (content !== undefined) updates.content = content;
+
+  const { data, error } = await supabaseAdmin
+    .from("telegram_messages")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ message: data });
+}
+
+export async function DELETE(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return NextResponse.json({ error: "id is required" }, { status: 400 });
+  }
+
+  const { error } = await supabaseAdmin
+    .from("telegram_messages")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true });
+}

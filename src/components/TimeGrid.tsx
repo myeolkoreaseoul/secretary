@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   summaries: HourlySummary[];
+  onHourClick?: (hour: number) => void;
 }
 
 const HOUR_LABELS = Array.from({ length: 24 }, (_, i) =>
@@ -29,7 +30,7 @@ function getActivityColor(summary: HourlySummary | undefined): string {
   return "bg-primary/10";
 }
 
-export function TimeGrid({ summaries }: Props) {
+export function TimeGrid({ summaries, onHourClick }: Props) {
   const summaryByHour = new Map<number, HourlySummary>();
   for (const s of summaries) {
     summaryByHour.set(s.hour, s);
@@ -45,15 +46,20 @@ export function TimeGrid({ summaries }: Props) {
             topApps.length > 0
               ? topApps.map((a) => `${a.app}: ${a.minutes}분`).join(", ")
               : "활동 없음";
+          const isEmpty = !summary || !topApps.length;
 
           return (
             <div key={hour} className="text-center">
               <div
                 className={cn(
                   "aspect-square rounded-sm transition-colors",
-                  getActivityColor(summary)
+                  getActivityColor(summary),
+                  onHourClick && isEmpty && "cursor-pointer hover:ring-2 hover:ring-primary/50"
                 )}
-                title={`${label}시 — ${tooltip}`}
+                title={`${label}시 — ${tooltip}${onHourClick && isEmpty ? " (클릭해서 기록)" : ""}`}
+                onClick={() => {
+                  if (onHourClick && isEmpty) onHourClick(hour);
+                }}
               />
               <span className="text-[10px] text-muted-foreground">{label}</span>
             </div>
@@ -70,6 +76,9 @@ export function TimeGrid({ summaries }: Props) {
           <div className="w-3 h-3 rounded-sm bg-primary/80" />
         </div>
         <span>많음</span>
+        {onHourClick && (
+          <span className="ml-2 text-primary/60">빈 칸을 클릭하면 수동 입력</span>
+        )}
       </div>
     </div>
   );

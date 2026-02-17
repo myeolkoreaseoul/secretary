@@ -6,13 +6,20 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Trash2,
+  Save,
+  X,
+} from "lucide-react";
 import type { TelegramMessage, Category, MessageClassification } from "@/types";
 
 interface HistoryResponse {
@@ -68,6 +75,20 @@ export default function HistoryPage() {
     fetchHistory();
   };
 
+  const deleteMessage = async (id: string) => {
+    await fetch(`/api/history?id=${id}`, { method: "DELETE" });
+    fetchHistory();
+  };
+
+  const editMessage = async (id: string, content: string) => {
+    await fetch("/api/history", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, content }),
+    });
+    fetchHistory();
+  };
+
   // Group messages by date
   const groupedByDate: Record<string, HistoryResponse["messages"]> = {};
   for (const msg of data?.messages || []) {
@@ -81,7 +102,7 @@ export default function HistoryPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold">대화 히스토리</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          텔레그램 대화를 날짜별로 확인합니다
+          텔레그램 대화를 날짜별로 확인하고 편집합니다
         </p>
       </div>
 
@@ -114,52 +135,14 @@ export default function HistoryPage() {
                 {dateStr}
               </h2>
               <div className="space-y-2">
-                {msgs.map((msg) => {
-                  const cls = msg.classification as MessageClassification | null;
-                  return (
-                    <Card
-                      key={msg.id}
-                      className={
-                        msg.role === "assistant"
-                          ? "border-l-2 border-l-primary/50"
-                          : ""
-                      }
-                    >
-                      <CardHeader className="py-3 pb-1">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Badge
-                              variant={
-                                msg.role === "user" ? "default" : "secondary"
-                              }
-                              className="text-[10px]"
-                            >
-                              {msg.role === "user" ? "나" : "비서"}
-                            </Badge>
-                            {msg.category && (
-                              <Badge variant="outline" className="text-[10px]">
-                                {(msg.category as Category).name}
-                              </Badge>
-                            )}
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {formatTime(msg.created_at)}
-                          </span>
-                        </div>
-                        {cls?.title && (
-                          <CardTitle className="text-xs mt-1">
-                            {cls.title}
-                          </CardTitle>
-                        )}
-                      </CardHeader>
-                      <CardContent className="py-2">
-                        <p className="text-sm whitespace-pre-wrap line-clamp-4">
-                          {msg.content}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+                {msgs.map((msg) => (
+                  <MessageItem
+                    key={msg.id}
+                    message={msg}
+                    onDelete={deleteMessage}
+                    onEdit={editMessage}
+                  />
+                ))}
               </div>
             </div>
           ))}
@@ -199,5 +182,111 @@ export default function HistoryPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function MessageItem({
+  message,
+  onDelete,
+  onEdit,
+}: {
+  message: TelegramMessage & { category: Category | null };
+  onDelete: (id: string) => void;
+  onEdit: (id: string, content: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState(message.content);
+  const cls = message.classification as MessageClassification | null;
+
+  const save = () => {
+    if (editContent.trim() !== message.content) {
+      onEdit(message.id, editContent.trim());
+    }
+    setEditing(false);
+  };
+
+  return (
+    <Card
+      className={
+        message.role === "assistant"
+          ? "border-l-2 border-l-primary/50"
+          : ""
+      }
+    >
+      <CardHeader className="py-3 pb-1">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={message.role === "user" ? "default" : "secondary"}
+              className="text-[10px]"
+            >
+              {message.role === "user" ? "나" : "비서"}
+            </Badge>
+            {message.category && (
+              <Badge variant="outline" className="text-[10px]">
+                {(message.category as Category).name}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground mr-2">
+              {formatTime(message.created_at)}
+            </span>
+            {message.role === "user" && (
+              <>
+                <button
+                  onClick={() => {
+                    setEditContent(message.content);
+                    setEditing(!editing);
+                  }}
+                  className="text-muted-foreground hover:text-foreground p-1"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={() => onDelete(message.id)}
+                  className="text-muted-foreground hover:text-destructive p-1"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {cls?.title && (
+          <CardTitle className="text-xs mt-1">{cls.title}</CardTitle>
+        )}
+      </CardHeader>
+      <CardContent className="py-2">
+        {editing ? (
+          <div className="space-y-2">
+            <textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              className="w-full min-h-[60px] bg-muted rounded-md px-3 py-2 text-sm outline-none resize-y"
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditing(false)}
+              >
+                <X className="w-3 h-3 mr-1" />
+                취소
+              </Button>
+              <Button size="sm" onClick={save}>
+                <Save className="w-3 h-3 mr-1" />
+                저장
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm whitespace-pre-wrap line-clamp-4">
+            {message.content}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
