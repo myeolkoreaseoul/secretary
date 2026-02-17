@@ -33,6 +33,13 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# bot
+bot/.env
+bot/logs/
+bot/*.lock
+__pycache__/
+*.pyc
+
 # vercel
 .vercel
 
