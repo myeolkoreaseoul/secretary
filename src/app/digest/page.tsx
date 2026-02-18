@@ -66,57 +66,24 @@ export default function DigestPage() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   });
-  const [digests, setDigests] = useState<Digest[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("morning");
+  // ... state ...
 
-  const fetchDigests = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/digest?date=${date}`);
-      const json = await res.json();
-      setDigests(json.digests || []);
-      // Auto-select tab based on available data
-      if (json.digests?.length > 0) {
-        const hasEvening = json.digests.some(
-          (d: Digest) => d.mode === "evening"
-        );
-        const hasMorning = json.digests.some(
-          (d: Digest) => d.mode === "morning"
-        );
-        if (hasEvening && !hasMorning) setActiveTab("evening");
-        else setActiveTab("morning");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [date]);
+  // ... fetchDigests ...
 
-  useEffect(() => {
-    fetchDigests();
-  }, [fetchDigests]);
+  // ... changeDate ...
 
-  const changeDate = (offset: number) => {
-    const d = new Date(date);
-    d.setDate(d.getDate() + offset);
-    setDate(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-    );
-  };
-
-  const morningDigest = digests.find((d) => d.mode === "morning");
-  const eveningDigest = digests.find((d) => d.mode === "evening");
+  // ... morningDigest / eveningDigest ...
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
+    <div className="container max-w-2xl mx-auto px-4 py-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold">AI 다이제스트</h1>
           <p className="text-muted-foreground text-sm mt-1">
             매일 아침/저녁 AI 관련 유튜브 영상 요약
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 self-start sm:self-auto">
           <Button
             size="icon"
             variant="outline"
@@ -155,32 +122,32 @@ export default function DigestPage() {
           </CardContent>
         </Card>
       ) : (
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4">
-            <TabsTrigger value="morning" className="text-xs">
-              <Sunrise className="w-3.5 h-3.5 mr-1" />
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-4">
+            <TabsTrigger value="morning">
+              <Sunrise className="w-4 h-4 mr-2" />
               모닝
               {morningDigest && (
-                <Badge variant="secondary" className="ml-1 text-[10px] px-1.5">
+                <Badge variant="secondary" className="ml-2">
                   {morningDigest.video_count}
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="evening" className="text-xs">
-              <Moon className="w-3.5 h-3.5 mr-1" />
+            <TabsTrigger value="evening">
+              <Moon className="w-4 h-4 mr-2" />
               이브닝
               {eveningDigest && (
-                <Badge variant="secondary" className="ml-1 text-[10px] px-1.5">
+                <Badge variant="secondary" className="ml-2">
                   {eveningDigest.video_count}
                 </Badge>
               )}
             </TabsTrigger>
           </TabsList>
-
-          <TabsContent value="morning">
+          
+          <TabsContent value="morning" className="mt-0">
             <DigestContent digest={morningDigest} />
           </TabsContent>
-          <TabsContent value="evening">
+          <TabsContent value="evening" className="mt-0">
             <DigestContent digest={eveningDigest} />
           </TabsContent>
         </Tabs>
@@ -203,21 +170,34 @@ function DigestContent({ digest }: { digest: Digest | undefined }) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {digest.header && (
-        <p className="text-sm text-muted-foreground">{digest.header}</p>
+        <p className="text-sm font-medium text-muted-foreground px-1">
+          {digest.header}
+        </p>
       )}
       {digest.videos.map((video, i) => (
-        <Card key={video.video_id}>
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <CardTitle className="text-sm">
-                  <span className="text-muted-foreground mr-2">{i + 1}.</span>
-                  {video.title}
+        <Card key={video.video_id} className="overflow-hidden">
+          <CardHeader className="p-4 pb-2">
+            <div className="flex items-start gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                {i + 1}
+              </span>
+              <div className="flex-1 min-w-0 space-y-1">
+                <CardTitle className="text-base font-semibold leading-tight">
+                  <a
+                    href={`https://www.youtube.com/watch?v=${video.video_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:underline hover:text-primary transition-colors block"
+                  >
+                    {video.title}
+                  </a>
                 </CardTitle>
-                <CardDescription className="flex items-center gap-3 mt-1 flex-wrap">
-                  <span>{video.channel}</span>
+                <CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm">
+                  <span className="font-medium text-foreground/80">
+                    {video.channel}
+                  </span>
                   {video.view_count > 0 && (
                     <span className="flex items-center gap-1">
                       <Eye className="w-3 h-3" />
@@ -232,21 +212,13 @@ function DigestContent({ digest }: { digest: Digest | undefined }) {
                   )}
                 </CardDescription>
               </div>
-              <a
-                href={`https://www.youtube.com/watch?v=${video.video_id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="shrink-0 text-muted-foreground hover:text-foreground p-1"
-              >
-                <ExternalLink className="w-4 h-4" />
-              </a>
             </div>
           </CardHeader>
           {video.summary && (
-            <CardContent>
-              <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+            <CardContent className="p-4 pt-2">
+              <div className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
                 {video.summary}
-              </p>
+              </div>
             </CardContent>
           )}
         </Card>
