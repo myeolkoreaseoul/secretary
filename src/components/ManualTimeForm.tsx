@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { apiFetch } from "@/lib/api-client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,7 +72,7 @@ export function ManualTimeForm({
       const start = new Date(`${date}T${startTime}:00+09:00`);
       const end = new Date(`${date}T${endTime}:00+09:00`);
 
-      const res = await fetch("/api/time", {
+      const res = await apiFetch("/api/time", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

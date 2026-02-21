@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
+const MAX_DURATION_MINUTES = 1440;
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const date =
@@ -14,8 +16,9 @@ export async function GET(request: NextRequest) {
     .order("hour", { ascending: true });
 
   if (summaryError) {
+    console.error('API error:', summaryError);
     return NextResponse.json(
-      { error: summaryError.message },
+      { error: '서버 오류가 발생했습니다' },
       { status: 500 }
     );
   }
@@ -35,7 +38,8 @@ export async function GET(request: NextRequest) {
     .order("recorded_at", { ascending: true });
 
   if (logError) {
-    return NextResponse.json({ error: logError.message }, { status: 500 });
+    console.error('API error:', logError);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다' }, { status: 500 });
   }
 
   // Fetch daily report if exists
@@ -64,6 +68,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Duration cap validation
+  if (duration_minutes && duration_minutes > MAX_DURATION_MINUTES) {
+    return NextResponse.json(
+      { error: `duration은 ${MAX_DURATION_MINUTES}분을 초과할 수 없습니다` },
+      { status: 400 }
+    );
+  }
+
   // Calculate start/end times
   let startTime: Date;
   let endTime: Date;
@@ -80,6 +92,15 @@ export async function POST(request: NextRequest) {
   } else {
     return NextResponse.json(
       { error: "start_time+end_time or duration_minutes required" },
+      { status: 400 }
+    );
+  }
+
+  // Also validate start_time + end_time doesn't exceed 24h
+  const diffMinutes = (endTime.getTime() - startTime.getTime()) / (60 * 1000);
+  if (diffMinutes > MAX_DURATION_MINUTES) {
+    return NextResponse.json(
+      { error: `duration은 ${MAX_DURATION_MINUTES}분을 초과할 수 없습니다` },
       { status: 400 }
     );
   }
@@ -115,7 +136,8 @@ export async function POST(request: NextRequest) {
     .select();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('API error:', error);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다' }, { status: 500 });
   }
 
   return NextResponse.json(
@@ -138,7 +160,8 @@ export async function DELETE(request: NextRequest) {
     .eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('API error:', error);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다' }, { status: 500 });
   }
 
   return NextResponse.json({ success: true });

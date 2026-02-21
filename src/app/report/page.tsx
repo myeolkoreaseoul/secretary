@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { apiFetch } from '@/lib/api-client';
 import CategoryBadge from '@/components/CategoryBadge';
 import EmployeeBadge from '@/components/EmployeeBadge';
 
@@ -31,7 +32,7 @@ export default function ReportPage() {
     const fetchReport = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`/api/report?date=${date}`);
+        const response = await apiFetch(`/api/report?date=${date}`);
         const data = await response.json();
         setReport(data);
       } catch (error) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { apiFetch } from "@/lib/api-client";
 import { MessageSquare, X, Send, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -34,7 +35,7 @@ export function ChatSidebar() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await apiFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg }),

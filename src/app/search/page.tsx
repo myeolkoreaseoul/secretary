@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { apiFetch } from '@/lib/api-client';
 import SearchBar from '@/components/SearchBar';
 import CategoryBadge from '@/components/CategoryBadge';
 import EmployeeBadge from '@/components/EmployeeBadge';
@@ -21,7 +22,7 @@ export default function SearchPage() {
       if (employee) params.set('employee', employee);
       if (category) params.set('category', category);
 
-      const response = await fetch(`/api/search?${params.toString()}`);
+      const response = await apiFetch(`/api/search?${params.toString()}`);
       const data = await response.json();
       setResults(data.results || []);
     } catch (error) {

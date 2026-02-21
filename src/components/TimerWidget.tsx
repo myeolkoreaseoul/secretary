@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { apiFetch } from "@/lib/api-client";
 import { Play, Square } from "lucide-react";
 
 const CATEGORIES = [
@@ -41,7 +42,7 @@ export function TimerWidget() {
     }
 
     const endTime = new Date();
-    await fetch("/api/time", {
+    await apiFetch("/api/time", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

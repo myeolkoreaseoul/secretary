@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "@/lib/api-client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,7 +45,7 @@ export default function TodosPage() {
   const fetchTodos = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/todos");
+      const res = await apiFetch("/api/todos");
       const json = await res.json();
       setTodos(json.todos || []);
     } finally {
@@ -78,7 +79,7 @@ export default function TodosPage() {
     e.preventDefault();
     if (!newTitle.trim()) return;
 
-    await fetch("/api/todos", {
+    await apiFetch("/api/todos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -97,7 +98,7 @@ export default function TodosPage() {
   };
 
   const toggleTodo = async (id: string, isDone: boolean) => {
-    await fetch("/api/todos", {
+    await apiFetch("/api/todos", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, is_done: !isDone }),
@@ -106,12 +107,12 @@ export default function TodosPage() {
   };
 
   const deleteTodo = async (id: string) => {
-    await fetch(`/api/todos?id=${id}`, { method: "DELETE" });
+    await apiFetch(`/api/todos?id=${id}`, { method: "DELETE" });
     fetchTodos();
   };
 
   const updateTodo = async (id: string, updates: Record<string, unknown>) => {
-    await fetch("/api/todos", {
+    await apiFetch("/api/todos", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, ...updates }),

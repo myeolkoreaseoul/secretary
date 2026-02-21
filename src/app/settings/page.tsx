@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "@/lib/api-client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,7 +32,7 @@ export default function SettingsPage() {
   const fetchCategories = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/categories");
+      const res = await apiFetch("/api/categories");
       const json = await res.json();
       setCategories(json.categories || []);
     } finally {
@@ -57,7 +58,7 @@ export default function SettingsPage() {
 
   const saveEdit = async () => {
     if (!editingId || !editName.trim()) return;
-    await fetch(`/api/categories/${editingId}`, {
+    await apiFetch(`/api/categories/${editingId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: editName.trim(), color: editColor }),
@@ -67,7 +68,7 @@ export default function SettingsPage() {
   };
 
   const deleteCategory = async (id: string) => {
-    const res = await fetch(`/api/categories/${id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/categories/${id}`, { method: "DELETE" });
     if (!res.ok) {
       const json = await res.json();
       alert(json.error || "삭제에 실패했습니다");
@@ -81,7 +82,7 @@ export default function SettingsPage() {
     if (!newName.trim()) return;
     setAdding(true);
     try {
-      const res = await fetch("/api/categories", {
+      const res = await apiFetch("/api/categories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

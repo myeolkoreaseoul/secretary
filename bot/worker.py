@@ -15,7 +15,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from bot.config import require_env, BOT_DIR
+from bot.config import require_env, BOT_DIR, TELEGRAM_ALLOWED_USERS
 from bot import supabase_client as db
 from bot import telegram_sender as tg
 
@@ -27,7 +27,7 @@ MCP_CONFIG = BOT_DIR / "mcp.json"
 CLAUDE_MD = BOT_DIR / "CLAUDE.md"
 SESSIONS_FILE = BOT_DIR / "sessions.json"
 WORKSPACE_DIR = Path("/home/john/projects/workspace")
-SESSION_TTL = 2 * 60 * 60  # 2 hours in seconds
+SESSION_TTL = 7 * 24 * 60 * 60  # 7 days — Claude CLI auto-compacts long sessions
 CLAUDE_TIMEOUT = 600  # 10 minutes
 DRAIN_WAIT = 0.5  # seconds to wait for additional messages
 
@@ -120,7 +120,12 @@ def get_session(chat_id: int) -> str | None:
         entry = data.get(key)
         if not entry:
             return None
-        if time.time() - entry.get("last_used", 0) > SESSION_TTL:
+        age_hours = (time.time() - entry.get("last_used", 0)) / 3600
+        if age_hours > SESSION_TTL / 3600:
+            log.info(
+                "Session expired for chat_id=%s (age=%.1fh, ttl=%dh), starting fresh",
+                chat_id, age_hours, SESSION_TTL // 3600,
+            )
             del data[key]
             _save_sessions_unlocked(data)
             return None
@@ -273,8 +278,9 @@ async def drain_messages(chat_id: int, first_content: str) -> tuple[str, list[st
     # Brief wait for more messages
     await asyncio.sleep(DRAIN_WAIT)
 
-    # Drain additional pending messages for this chat
-    while True:
+    # Drain additional pending messages for this chat (capped to prevent infinite loop)
+    MAX_DRAIN = 20
+    for _ in range(MAX_DRAIN):
         extra = await db.dequeue_message_for_chat(chat_id)
         if not extra:
             break
@@ -306,6 +312,12 @@ async def process_one() -> bool:
 
     log.info("Processing message queue_id=%s chat_id=%s", queue_id, chat_id)
 
+    # Validate chat_id against allowed users
+    if TELEGRAM_ALLOWED_USERS and chat_id not in TELEGRAM_ALLOWED_USERS:
+        log.warning("Rejected message from unauthorized chat_id=%s", chat_id)
+        await db.fail_message(queue_id, "unauthorized_chat_id")
+        return True
+
     # Send typing indicator
     await tg.send_typing_action(chat_id)
 
@@ -325,7 +337,7 @@ async def process_one() -> bool:
                 await db.requeue_message(qid)
             return True
 
-        success, output = run_claude(combined_content, chat_id)
+        success, output = await asyncio.to_thread(run_claude, combined_content, chat_id)
 
         if success:
             for qid in all_queue_ids:

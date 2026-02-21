@@ -13,6 +13,13 @@ _BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 MAX_MESSAGE_LENGTH = 4096
 
 
+def _mask_token(text: str) -> str:
+    """Mask bot token in error messages."""
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_TOKEN in str(text):
+        return str(text).replace(TELEGRAM_BOT_TOKEN, "***TOKEN***")
+    return str(text)
+
+
 async def send_message(chat_id: int, text: str) -> bool:
     """Send a text message, auto-splitting if > 4096 chars."""
     if not text:
@@ -40,7 +47,7 @@ async def send_message(chat_id: int, text: str) -> bool:
                     )
                 resp.raise_for_status()
             except Exception as e:
-                log.error("Failed to send message to chat_id=%s: %s", chat_id, e)
+                log.error("Failed to send message to chat_id=%s: %s", chat_id, _mask_token(str(e)))
                 success = False
 
     return success
@@ -64,7 +71,7 @@ async def send_file(chat_id: int, file_path: str) -> bool:
             resp.raise_for_status()
             return True
         except Exception as e:
-            log.error("Failed to send file to chat_id=%s: %s", chat_id, e)
+            log.error("Failed to send file to chat_id=%s: %s", chat_id, _mask_token(str(e)))
             return False
 
 

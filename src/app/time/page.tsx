@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "@/lib/api-client";
 import { Input } from "@/components/ui/input";
 import {
   Card,
@@ -34,7 +35,7 @@ export default function TimePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/time?date=${date}`);
+      const res = await apiFetch(`/api/time?date=${date}`);
       const json = await res.json();
       setData(json);
     } finally {
@@ -54,7 +55,7 @@ export default function TimePage() {
   };
 
   const deleteLog = async (id: string) => {
-    await fetch(`/api/time?id=${id}`, { method: "DELETE" });
+    await apiFetch(`/api/time?id=${id}`, { method: "DELETE" });
     fetchData();
   };
 

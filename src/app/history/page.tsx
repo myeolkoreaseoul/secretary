@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "@/lib/api-client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,7 +58,7 @@ export default function HistoryPage() {
     try {
       const params = new URLSearchParams({ page: String(page) });
       if (query) params.set("q", query);
-      const res = await fetch(`/api/history?${params}`);
+      const res = await apiFetch(`/api/history?${params}`);
       const json = await res.json();
       setData(json);
     } finally {
@@ -76,12 +77,12 @@ export default function HistoryPage() {
   };
 
   const deleteMessage = async (id: string) => {
-    await fetch(`/api/history?id=${id}`, { method: "DELETE" });
+    await apiFetch(`/api/history?id=${id}`, { method: "DELETE" });
     fetchHistory();
   };
 
   const editMessage = async (id: string, content: string) => {
-    await fetch("/api/history", {
+    await apiFetch("/api/history", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, content }),

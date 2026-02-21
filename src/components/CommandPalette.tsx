@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "@/lib/api-client";
 import { Command } from "cmdk";
 import { useRouter } from "next/navigation";
 import {
@@ -48,7 +49,7 @@ export function CommandPalette() {
 
       if (todoMatch) {
         setStatus("할일 추가 중...");
-        await fetch("/api/todos", {
+        await apiFetch("/api/todos", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: todoMatch[1] }),
@@ -74,7 +75,7 @@ export function CommandPalette() {
         }
         const now = new Date();
         const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
-        await fetch("/api/time", {
+        await apiFetch("/api/time", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

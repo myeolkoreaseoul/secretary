@@ -26,15 +26,19 @@ logging.basicConfig(
 log = logging.getLogger("aggregate")
 
 
+KST = timezone(timedelta(hours=9))
+
+
 async def main():
-    now = datetime.now(timezone.utc)
-    # Aggregate the previous hour
+    now = datetime.now(KST)
+    # Aggregate the previous hour in KST
     target_hour = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
     date_str = target_hour.strftime("%Y-%m-%d")
-    hour = target_hour.hour
+    hour = target_hour.hour  # KST hour (0-23)
 
-    start = target_hour.isoformat()
-    end = (target_hour + timedelta(hours=1)).isoformat()
+    # Convert to UTC for Supabase query
+    start = target_hour.astimezone(timezone.utc).isoformat()
+    end = (target_hour + timedelta(hours=1)).astimezone(timezone.utc).isoformat()
 
     log.info("Aggregating %s hour %d (%s to %s)", date_str, hour, start, end)
 

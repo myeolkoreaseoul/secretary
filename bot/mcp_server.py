@@ -181,7 +181,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, default=str))]
     except Exception as e:
         log.error("Tool %s failed: %s", name, e, exc_info=True)
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}, ensure_ascii=False))]
+        return [TextContent(type="text", text=json.dumps(
+            {"error": "도구 실행 중 내부 오류가 발생했습니다"}, ensure_ascii=False
+        ))]
 
 
 async def _dispatch(name: str, args: dict) -> dict:

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
+function escapeIlike(str: string): string {
+  return str.replace(/[%_\\]/g, '\\$&');
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q") || "";
@@ -11,12 +15,15 @@ export async function GET(request: NextRequest) {
 
   let query = supabaseAdmin
     .from("telegram_messages")
-    .select("*, category:categories(id, name, color)", { count: "exact" })
+    .select(
+      "id, chat_id, sender, role, content, classification, category_id, metadata, created_at, category:categories(id, name, color)",
+      { count: "exact" }
+    )
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
   if (q) {
-    query = query.ilike("content", `%${q}%`);
+    query = query.ilike("content", `%${escapeIlike(q)}%`);
   }
 
   if (category) {
@@ -35,7 +42,8 @@ export async function GET(request: NextRequest) {
   const { data, count, error } = await query;
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('API error:', error);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다' }, { status: 500 });
   }
 
   return NextResponse.json({
@@ -65,7 +73,8 @@ export async function PATCH(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('API error:', error);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다' }, { status: 500 });
   }
 
   return NextResponse.json({ message: data });
@@ -85,7 +94,8 @@ export async function DELETE(request: NextRequest) {
     .eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('API error:', error);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다' }, { status: 500 });
   }
 
   return NextResponse.json({ success: true });

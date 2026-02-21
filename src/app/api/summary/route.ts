@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
   const { data: messages, error } = await query;
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('API error:', error);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다' }, { status: 500 });
   }
 
   if (!messages || messages.length === 0) {

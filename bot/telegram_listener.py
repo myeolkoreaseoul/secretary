@@ -188,6 +188,10 @@ def _is_allowed(update: Update) -> bool:
     user = update.effective_user
     if not user:
         return False
+    # 그룹 채팅 차단 - 개인 채팅만 허용
+    chat = update.effective_chat
+    if chat and chat.type != "private":
+        return False
     return user.id in TELEGRAM_ALLOWED_USERS
 
 
@@ -198,7 +202,7 @@ def _is_allowed(update: Update) -> bool:
 def main():
     require_env()
     log.info("Starting Telegram listener...")
-    log.info("Allowed users: %s", TELEGRAM_ALLOWED_USERS)
+    log.info("Allowed users count: %d", len(TELEGRAM_ALLOWED_USERS))
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 

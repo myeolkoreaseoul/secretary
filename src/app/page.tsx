@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { apiFetch } from "@/lib/api-client";
 import {
   Card,
   CardContent,
@@ -45,9 +46,9 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const [todosRes, timeRes, historyRes] = await Promise.all([
-        fetch("/api/todos"),
-        fetch(`/api/time?date=${today}`),
-        fetch("/api/history?page=1"),
+        apiFetch("/api/todos"),
+        apiFetch(`/api/time?date=${today}`),
+        apiFetch("/api/history?page=1"),
       ]);
 
       const [todosData, timeData, historyData] = await Promise.all([
@@ -69,7 +70,7 @@ export default function DashboardPage() {
   }, [fetchDashboardData]);
 
   const toggleTodo = async (id: string, isDone: boolean) => {
-    await fetch("/api/todos", {
+    await apiFetch("/api/todos", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, is_done: !isDone }),

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { apiFetch } from '@/lib/api-client';
 import ConversationCard from '@/components/ConversationCard';
 
 interface ConversationData {
@@ -25,7 +26,7 @@ export default function ConversationsPage() {
   useEffect(() => {
     const fetchConversations = async () => {
       try {
-        const response = await fetch('/api/conversation');
+        const response = await apiFetch('/api/conversation');
         const data = await response.json();
         setConversations(data.conversations || []);
       } catch (error) {

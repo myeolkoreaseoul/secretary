@@ -15,6 +15,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
 
 # --- Optional ---
 def _parse_allowed_users() -> list[int]:

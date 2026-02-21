@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -41,7 +42,7 @@ export function DailyPlanEditor({ date }: DailyPlanEditorProps) {
 
   const fetchPlan = useCallback(async () => {
     try {
-      const res = await fetch(`/api/daily-plan?date=${date}`);
+      const res = await apiFetch(`/api/daily-plan?date=${date}`);
       const data = await res.json();
       if (data.plan) setPlan(data.plan);
       if (data.planText) setPlanText(data.planText);
@@ -57,7 +58,7 @@ export function DailyPlanEditor({ date }: DailyPlanEditorProps) {
   const generate = async () => {
     setGenerating(true);
     try {
-      const res = await fetch("/api/daily-plan", {
+      const res = await apiFetch("/api/daily-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date, action: "generate" }),
@@ -74,7 +75,7 @@ export function DailyPlanEditor({ date }: DailyPlanEditorProps) {
     setLoading(true);
     setSaved(false);
     try {
-      await fetch("/api/daily-plan", {
+      await apiFetch("/api/daily-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date, plan, planText }),

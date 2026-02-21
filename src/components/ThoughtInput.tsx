@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { apiFetch } from '@/lib/api-client';
 import { ThoughtResultItem } from '@/types';
 
 interface ThoughtInputProps {
@@ -17,7 +18,7 @@ export default function ThoughtInput({ onResults }: ThoughtInputProps) {
 
     setLoading(true);
     try {
-      const response = await fetch('/api/thought', {
+      const response = await apiFetch('/api/thought', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
