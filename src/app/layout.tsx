@@ -8,6 +8,7 @@ import {
   CheckSquare,
   Clock,
   Newspaper,
+  Youtube,
   Settings,
   Command,
 } from "lucide-react";
@@ -36,6 +37,7 @@ const navItems = [
   { href: "/todos", label: "할일", icon: CheckSquare },
   { href: "/time", label: "시간", icon: Clock },
   { href: "/digest", label: "다이제스트", icon: Newspaper },
+  { href: "/yt", label: "유튜브", icon: Youtube },
   { href: "/settings", label: "설정", icon: Settings },
 ];
 
