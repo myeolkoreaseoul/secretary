@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from bot import supabase_client as db
 from bot import embedding as emb
 from bot import telegram_sender as tg
-from bot.config import require_env
+from bot.config import require_env, TELEGRAM_ALLOWED_USERS
 
 WORKSPACE_DIR = Path("/home/john/projects/workspace")
 
@@ -186,8 +186,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         ))]
 
 
+def _validate_chat_id(chat_id: int) -> bool:
+    """Verify chat_id is in the allowed users list."""
+    if not TELEGRAM_ALLOWED_USERS:
+        return True  # No whitelist configured — allow (bot.config handles this)
+    return chat_id in TELEGRAM_ALLOWED_USERS
+
+
 async def _dispatch(name: str, args: dict) -> dict:
     """Route tool calls to implementations."""
+
+    # Validate chat_id for all tools that accept it
+    if "chat_id" in args:
+        chat_id_val = args["chat_id"]
+        if isinstance(chat_id_val, int) and not _validate_chat_id(chat_id_val):
+            log.warning("MCP tool %s rejected: unauthorized chat_id=%s", name, chat_id_val)
+            return {"error": "unauthorized"}
 
     if name == "prepare_context":
         chat_id = args["chat_id"]

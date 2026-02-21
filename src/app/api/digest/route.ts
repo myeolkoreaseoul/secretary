@@ -5,7 +5,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const date = searchParams.get("date");
   const mode = searchParams.get("mode");
-  const limit = parseInt(searchParams.get("limit") || "10", 10);
+  const limit = Math.min(parseInt(searchParams.get("limit") || "10", 10), 50);
 
   if (date && mode) {
     // Fetch specific digest

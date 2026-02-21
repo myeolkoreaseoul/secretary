@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q") || "";
   const category = searchParams.get("category") || "";
-  const page = parseInt(searchParams.get("page") || "1", 10);
+  const page = Math.min(Math.max(parseInt(searchParams.get("page") || "1", 10), 1), 100);
   const limit = 30;
   const offset = (page - 1) * limit;
 
