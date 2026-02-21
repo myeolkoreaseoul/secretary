@@ -5,7 +5,10 @@ Uses python-telegram-bot async handlers.
 """
 
 import asyncio
+import json
 import logging
+import re
+import subprocess
 
 from telegram import Update
 from telegram.ext import (
@@ -25,6 +28,76 @@ from bot import supabase_client as db
 from bot import telegram_sender as tg
 
 log = logging.getLogger("secretary.listener")
+
+_YT_RE = re.compile(
+    r"https?://(?:www\.)?(?:youtube\.com/watch\?[^\s]*v=|youtu\.be/|youtube\.com/shorts/)"
+    r"([A-Za-z0-9_-]{11})[^\s]*"
+)
+
+
+def _extract_youtube_url(text: str) -> str | None:
+    """Extract first YouTube URL from text, return None if not found."""
+    m = _YT_RE.search(text)
+    return m.group(0) if m else None
+
+
+async def _summarize_youtube_bg(chat_id: int, url: str) -> None:
+    """Background task: run yt-sage summarizer and send result to Telegram."""
+    try:
+        log.info("Starting YouTube summarization: %s", url)
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["python3", "/home/john/projects/yt-sage/summarize.py", url, "--json"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            cwd="/tmp",
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            log.error("Summarization failed: %s", result.stderr[:200])
+            await tg.send_message(chat_id, "❌ 요약 실패. 자막이 없거나 처리 중 오류가 발생했습니다.")
+            return
+
+        data = json.loads(result.stdout.strip())
+        summary = data.get("summary", {})
+        video_id = data.get("video_id", "")
+        title = data.get("title", "")
+        channel = data.get("channel", "")
+        duration_min = (data.get("duration") or 0) // 60
+
+        lines = [f"🎬 *{title}*", f"   {channel} · {duration_min}분", ""]
+
+        for q in summary.get("key_questions", [])[:2]:
+            emoji = q.get("emoji", "📌")
+            lines.append(f"{emoji} *{q.get('question', '')}*")
+            lines.append(q.get("answer", ""))
+            for b in q.get("bullets", [])[:3]:
+                lines.append(f"  • {b}")
+            lines.append("")
+
+        toc = summary.get("toc", [])
+        if toc:
+            lines.append("📋 *목차*")
+            for item in toc[:5]:
+                lines.append(f"  {item['number']}. {item['title']}")
+            lines.append("")
+
+        tags = summary.get("tags", [])
+        if tags:
+            lines.append("🏷️ " + " ".join(f"#{t}" for t in tags[:5]))
+            lines.append("")
+
+        lines.append(f"📖 [전체 보기](https://secretary-five.vercel.app/yt/{video_id})")
+
+        msg = "\n".join(lines)
+        await tg.send_message(chat_id, msg)
+
+        log.info("YouTube summarization complete: %s", video_id)
+    except asyncio.TimeoutError:
+        await tg.send_message(chat_id, "⏱️ 요약 시간이 초과되었습니다.")
+    except Exception as e:
+        log.error("YouTube summarization error: %s", e, exc_info=True)
+        await tg.send_message(chat_id, f"❌ 요약 중 오류: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +120,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     chat_id = message.chat_id
     user = update.effective_user
+
+    # YouTube URL detection
+    yt_url = _extract_youtube_url(message.text)
+    if yt_url:
+        await tg.send_message(chat_id, f"🎬 YouTube 요약 시작합니다...\n{yt_url}")
+        asyncio.get_event_loop().create_task(_summarize_youtube_bg(chat_id, yt_url))
+        return  # Don't enqueue to Claude queue - handle directly
 
     try:
         await db.enqueue_message(
