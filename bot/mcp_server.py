@@ -427,7 +427,7 @@ async def _web_search(args: dict) -> dict:
         }
     except Exception as e:
         log.error("Web search failed: %s", e)
-        return {"error": f"검색 실패: {str(e)}", "query": query}
+        return {"error": "검색 중 오류가 발생했습니다", "query": query}
 
 
 async def main():

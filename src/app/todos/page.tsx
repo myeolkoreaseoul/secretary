@@ -55,16 +55,9 @@ export default function TodosPage() {
 
   const fetchCategories = useCallback(async () => {
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/categories?select=*&order=name`,
-        {
-          headers: {
-            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
-          },
-        }
-      );
+      const res = await apiFetch("/api/categories");
       const json = await res.json();
-      setCategories(json || []);
+      setCategories(json.categories || json || []);
     } catch {
       // Fallback
     }
