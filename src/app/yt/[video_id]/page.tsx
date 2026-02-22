@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-client";
@@ -8,10 +8,47 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft } from "lucide-react";
 
+interface YTPlayer {
+  seekTo(seconds: number, allowSeekAhead: boolean): void;
+  playVideo(): void;
+  destroy(): void;
+}
+
+interface YTPlayerConstructor {
+  new (
+    element: HTMLElement,
+    options: {
+      videoId: string;
+      playerVars?: Record<string, number>;
+      height?: string;
+      width?: string;
+    }
+  ): YTPlayer;
+}
+
+interface YTNamespace {
+  Player: YTPlayerConstructor;
+}
+
+declare global {
+  interface Window {
+    YT: YTNamespace;
+    onYouTubeIframeAPIReady: () => void;
+  }
+}
+
+interface Sentence {
+  num: number;
+  text: string;
+  start_sec: number;
+  timestamp: string;
+}
+
 interface Bullet {
   keyword: string;
   text: string;
   timestamp?: string;
+  sentence_numbers?: number[];
 }
 
 interface Subsection {
@@ -64,6 +101,7 @@ interface YtVideo {
   thumbnail_url: string | null;
   lang: string;
   transcript: string | null;
+  sentences: Sentence[] | null;
   summary_json: SummaryJson | null;
   created_at: string;
 }
@@ -74,19 +112,6 @@ function formatDuration(seconds: number): string {
   return `${mins}분`;
 }
 
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  return `${date.getFullYear()}. ${date.getMonth() + 1}. ${date.getDate()}.`;
-}
-
-function TimestampPill({ ts }: { ts: string }) {
-  return (
-    <span className="inline-block bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded px-2 py-0.5 text-xs font-mono ml-2 align-middle">
-      {ts}
-    </span>
-  );
-}
-
 function tsToSeconds(ts: string): number {
   const parts = ts.split(":").map(Number);
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
@@ -94,18 +119,48 @@ function tsToSeconds(ts: string): number {
   return 0;
 }
 
-function TimestampBadge({ ts, videoId }: { ts: string; videoId: string }) {
-  const seconds = tsToSeconds(ts);
-  const label = ts.startsWith("00:") ? ts.slice(3) : ts;
+function TimestampPill({ ts, onSeek }: { ts: string; onSeek?: (s: number) => void }) {
+  if (onSeek) {
+    return (
+      <button
+        onClick={() => onSeek(tsToSeconds(ts))}
+        className="inline-block bg-gray-100 dark:bg-gray-800 text-blue-500 hover:text-blue-600 rounded px-2 py-0.5 text-xs font-mono ml-2 align-middle cursor-pointer"
+      >
+        {ts}
+      </button>
+    );
+  }
   return (
-    <a
-      href={`https://www.youtube.com/watch?v=${videoId}&t=${seconds}s`}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-block bg-gray-100 dark:bg-gray-800 text-blue-500 hover:text-blue-600 rounded px-1.5 py-0.5 text-xs font-mono ml-1 align-middle"
+    <span className="inline-block bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded px-2 py-0.5 text-xs font-mono ml-2 align-middle">
+      {ts}
+    </span>
+  );
+}
+
+function SentenceBadge({
+  sentenceNumbers,
+  highlighted,
+  onClick,
+}: {
+  sentenceNumbers: number[];
+  highlighted: boolean;
+  onClick: () => void;
+}) {
+  const label =
+    sentenceNumbers.length === 1
+      ? `${sentenceNumbers[0]}`
+      : `${sentenceNumbers[0]}~${sentenceNumbers[sentenceNumbers.length - 1]}`;
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-block rounded px-1.5 py-0.5 text-xs font-mono ml-1 align-middle transition-colors cursor-pointer ${
+        highlighted
+          ? "bg-blue-500 text-white"
+          : "bg-gray-100 dark:bg-gray-800 text-blue-500 hover:bg-blue-100 dark:hover:bg-blue-900 dark:hover:text-blue-400"
+      }`}
     >
-      {label}
-    </a>
+      [{label}]
+    </button>
   );
 }
 
@@ -115,21 +170,80 @@ function parseBold(text: string): string {
 
 function LoadingSkeleton() {
   return (
-    <div className="space-y-6">
-      <Skeleton className="w-full h-64 rounded-xl" />
-      <div className="space-y-2">
-        <Skeleton className="h-7 w-3/4" />
-        <Skeleton className="h-4 w-1/2" />
+    <div className="flex flex-col -mx-6 -my-6" style={{ height: "calc(100vh - 56px)" }}>
+      {/* Header skeleton */}
+      <div className="shrink-0 h-12 flex items-center px-4 border-b border-border gap-3">
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-4 flex-1 max-w-md" />
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Skeleton className="h-32 rounded-xl" />
-        <Skeleton className="h-32 rounded-xl" />
+      <div className="flex flex-1 min-h-0">
+        {/* Left panel skeleton */}
+        <div className="w-96 shrink-0 border-r border-border flex flex-col">
+          <Skeleton className="w-full aspect-video shrink-0" />
+          <div className="flex-1 p-3 space-y-2">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        </div>
+        {/* Right panel skeleton */}
+        <div className="flex-1 p-6 space-y-4">
+          <Skeleton className="h-6 w-1/3" />
+          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-6 w-1/4 mt-4" />
+          <Skeleton className="h-40 rounded-xl" />
+          <Skeleton className="h-40 rounded-xl" />
+        </div>
       </div>
-      <Skeleton className="h-24 rounded-xl" />
-      <div className="space-y-4">
-        <Skeleton className="h-6 w-1/3" />
-        <Skeleton className="h-40 rounded-xl" />
-        <Skeleton className="h-40 rounded-xl" />
+    </div>
+  );
+}
+
+function ScriptPanel({
+  sentences,
+  highlightedNums,
+  onSeek,
+}: {
+  sentences: Sentence[];
+  highlightedNums: number[];
+  onSeek: (seconds: number) => void;
+}) {
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="px-3 py-2 border-b border-border shrink-0">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          자막 ({sentences.length})
+        </span>
+      </div>
+      <div className="overflow-y-auto flex-1">
+        {sentences.map((s) => {
+          const isHighlighted = highlightedNums.includes(s.num);
+          return (
+            <div
+              key={s.num}
+              data-sentence-num={s.num}
+              onClick={() => onSeek(s.start_sec)}
+              className={`cursor-pointer flex gap-2 px-3 py-2 text-xs border-b border-border/40 transition-colors ${
+                isHighlighted
+                  ? "bg-blue-50 dark:bg-blue-950/30 border-l-2 border-l-blue-500"
+                  : "hover:bg-muted/50"
+              }`}
+            >
+              <span className="text-muted-foreground/60 font-mono shrink-0 w-5 text-right pt-0.5">
+                {s.num}
+              </span>
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="text-muted-foreground/50 font-mono text-[10px]">
+                  {s.timestamp.startsWith("00:") ? s.timestamp.slice(3) : s.timestamp}
+                </span>
+                <span className={`text-sm leading-relaxed break-keep ${isHighlighted ? "text-foreground font-medium" : "text-foreground/80"}`}>
+                  {s.text}
+                </span>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -141,6 +255,32 @@ export default function YtVideoPage() {
   const [video, setVideo] = useState<YtVideo | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [highlightedNums, setHighlightedNums] = useState<number[]>([]);
+
+  const playerRef = useRef<YTPlayer | null>(null);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
+
+  const sentences = video?.sentences ?? [];
+  const hasSentences = sentences.length > 0;
+
+  const seekTo = useCallback((seconds: number) => {
+    playerRef.current?.seekTo(seconds, true);
+    playerRef.current?.playVideo();
+  }, []);
+
+  function handleHighlight(nums: number[]) {
+    setHighlightedNums(nums);
+    const firstSentence = sentences.find((s) => s.num === nums[0]);
+    if (firstSentence) {
+      seekTo(firstSentence.start_sec);
+    }
+    if (nums.length > 0) {
+      setTimeout(() => {
+        const el = document.querySelector(`[data-sentence-num="${nums[0]}"]`);
+        el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 50);
+    }
+  }
 
   useEffect(() => {
     async function fetchVideo() {
@@ -160,12 +300,41 @@ export default function YtVideoPage() {
     fetchVideo();
   }, [video_id]);
 
+  // YouTube IFrame API
+  useEffect(() => {
+    if (!video?.video_id) return;
+
+    if (!window.YT) {
+      const script = document.createElement("script");
+      script.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(script);
+    }
+
+    const initPlayer = () => {
+      if (playerContainerRef.current && video.video_id) {
+        playerRef.current = new window.YT.Player(playerContainerRef.current, {
+          videoId: video.video_id,
+          playerVars: { autoplay: 0, rel: 0 },
+          height: "100%",
+          width: "100%",
+        });
+      }
+    };
+
+    if (window.YT?.Player) {
+      initPlayer();
+    } else {
+      window.onYouTubeIframeAPIReady = initPlayer;
+    }
+
+    return () => {
+      playerRef.current?.destroy();
+      playerRef.current = null;
+    };
+  }, [video?.video_id]);
+
   if (loading) {
-    return (
-      <div className="max-w-3xl mx-auto space-y-6">
-        <LoadingSkeleton />
-      </div>
-    );
+    return <LoadingSkeleton />;
   }
 
   if (notFound || !video) {
@@ -190,177 +359,202 @@ export default function YtVideoPage() {
   const s = video.summary_json;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 pb-12">
-      {/* Back link */}
-      <Link
-        href="/yt"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        목록으로
-      </Link>
-
-      {/* Thumbnail hero */}
-      {video.thumbnail_url && (
-        <div className="w-full max-h-64 overflow-hidden rounded-xl bg-muted">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={video.thumbnail_url}
-            alt={video.title}
-            className="w-full max-h-64 object-cover"
-          />
-        </div>
-      )}
-
-      {/* Title / meta */}
-      <div className="space-y-1">
-        <h1 className="text-2xl font-bold leading-snug break-keep">{video.title}</h1>
-        <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-foreground/80">{video.channel}</span>
-          {video.duration > 0 && (
-            <> &middot; {formatDuration(video.duration)}</>
-          )}
-          {" "}
-          <span className="text-muted-foreground/60">&middot; {formatDate(video.created_at)}</span>
-        </p>
+    <div className="flex flex-col -mx-6 -my-6" style={{ height: "calc(100vh - 56px)" }}>
+      {/* Header bar */}
+      <div className="shrink-0 h-12 flex items-center px-4 border-b border-border gap-3">
+        <Link
+          href="/yt"
+          className="shrink-0 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span className="hidden sm:inline">목록으로</span>
+        </Link>
+        <div className="w-px h-4 bg-border shrink-0" />
+        <span className="text-sm font-semibold truncate text-foreground/90 flex-1 min-w-0">
+          {video.title}
+        </span>
+        {video.channel && (
+          <span className="shrink-0 text-xs text-muted-foreground hidden md:inline">
+            {video.channel}
+            {video.duration > 0 && <> &middot; {formatDuration(video.duration)}</>}
+          </span>
+        )}
       </div>
 
-      {/* Key Questions */}
-      {s?.key_questions && s.key_questions.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-base font-semibold text-foreground/90">핵심 질문</h2>
-          <div className="grid grid-cols-1 gap-3">
-            {s.key_questions.map((kq, i) => (
-              <div
-                key={i}
-                className="border border-border rounded-xl p-4 border-l-4 border-l-blue-500 dark:border-l-blue-400 bg-card"
-              >
-                <p className="font-semibold text-sm mb-1.5">
-                  {kq.emoji} {kq.question}
-                </p>
-                <p className="text-sm text-muted-foreground leading-relaxed">{kq.answer}</p>
-                {kq.bullets && kq.bullets.length > 0 && (
-                  <ul className="mt-2 space-y-1">
-                    {kq.bullets.map((b, bi) => (
-                      <li
-                        key={bi}
-                        className="text-xs text-muted-foreground pl-3 border-l-2 border-muted"
-                        dangerouslySetInnerHTML={{ __html: parseBold(b) }}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
+      {/* Body */}
+      <div className="flex flex-1 min-h-0">
+        {/* Left panel: Player + Script */}
+        <div className="w-96 shrink-0 flex flex-col border-r border-border overflow-hidden">
+          {/* YouTube Player (16:9) */}
+          <div className="w-full aspect-video shrink-0 bg-black">
+            <div ref={playerContainerRef} className="w-full h-full" />
           </div>
-        </div>
-      )}
 
-      {/* Intro */}
-      {s?.intro && (
-        <p className="text-sm italic text-muted-foreground leading-relaxed border-l-2 border-muted pl-4">
-          {s.intro}
-        </p>
-      )}
-
-      {/* TOC */}
-      {s?.toc && s.toc.length > 0 && (
-        <div className="border border-border rounded-xl p-4 bg-card space-y-2">
-          <h2 className="text-sm font-semibold text-foreground/90 mb-2">목차</h2>
-          <ol className="space-y-1.5">
-            {s.toc.map((entry) => (
-              <li key={entry.number}>
-                <span className="text-sm font-medium">
-                  {entry.number}. {entry.title}
-                </span>
-                {entry.subsections && entry.subsections.length > 0 && (
-                  <ol className="ml-4 mt-1 space-y-1">
-                    {entry.subsections.map((sub) => (
-                      <li key={sub.number} className="text-xs text-muted-foreground">
-                        {sub.number}. {sub.title}
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-
-      {/* Sections */}
-      {s?.sections && s.sections.length > 0 && (
-        <div className="space-y-6">
-          {s.sections.map((section) => (
-            <div key={section.number} className="space-y-3">
-              {/* Section header */}
-              <h2 className="text-lg font-bold flex items-center flex-wrap gap-1">
-                <span>{section.number}. {section.title}</span>
-                {section.timestamp && <TimestampPill ts={section.timestamp} />}
-              </h2>
-
-              {/* Section intro */}
-              {section.intro && (
-                <p className="text-sm italic text-muted-foreground leading-relaxed">
-                  {section.intro}
-                </p>
-              )}
-
-              {/* Subsections */}
-              {section.subsections && section.subsections.length > 0 && (
-                <div className="space-y-4 ml-1">
-                  {section.subsections.map((sub) => (
-                    <div key={sub.number} className="space-y-2">
-                      <h3 className="text-base font-semibold flex items-center flex-wrap gap-1 text-foreground/90">
-                        <span>{sub.number}. {sub.title}</span>
-                        {sub.timestamp && <TimestampPill ts={sub.timestamp} />}
-                      </h3>
-
-                      {sub.bullets && sub.bullets.length > 0 && (
-                        <ul className="space-y-1.5 ml-2">
-                          {sub.bullets.map((bullet, bi) => (
-                            <li key={bi} className="flex items-start gap-2 text-sm">
-                              <span className="text-muted-foreground mt-0.5 shrink-0">•</span>
-                              <span className="leading-relaxed">
-                                <span
-                                  dangerouslySetInnerHTML={{
-                                    __html: parseBold(
-                                      bullet.keyword
-                                        ? `**${bullet.keyword}**: ${bullet.text}`
-                                        : bullet.text
-                                    ),
-                                  }}
-                                />
-                                {bullet.timestamp && (
-                                  <TimestampBadge ts={bullet.timestamp} videoId={video.video_id} />
-                                )}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+          {/* Script panel */}
+          {hasSentences ? (
+            <ScriptPanel
+              sentences={sentences}
+              highlightedNums={highlightedNums}
+              onSeek={seekTo}
+            />
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
+              자막 없음
             </div>
-          ))}
+          )}
         </div>
-      )}
 
-      {/* Tags */}
-      {s?.tags && s.tags.length > 0 && (
-        <div className="flex flex-wrap gap-2 pt-2">
-          {s.tags.map((tag) => (
-            <span
-              key={tag}
-              className="text-xs bg-muted text-muted-foreground rounded-full px-3 py-1"
-            >
-              #{tag}
-            </span>
-          ))}
+        {/* Right panel: Summary */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6 pb-12">
+          {/* Key Questions */}
+          {s?.key_questions && s.key_questions.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="text-base font-semibold text-foreground/90">핵심 질문</h2>
+              <div className="grid grid-cols-1 gap-3">
+                {s.key_questions.map((kq, i) => (
+                  <div
+                    key={i}
+                    className="border border-border rounded-xl p-4 border-l-4 border-l-blue-500 dark:border-l-blue-400 bg-card"
+                  >
+                    <p className="font-semibold text-sm mb-1.5">
+                      {kq.emoji} {kq.question}
+                    </p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{kq.answer}</p>
+                    {kq.bullets && kq.bullets.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {kq.bullets.map((b, bi) => (
+                          <li
+                            key={bi}
+                            className="text-xs text-muted-foreground pl-3 border-l-2 border-muted"
+                            dangerouslySetInnerHTML={{ __html: parseBold(b) }}
+                          />
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Intro */}
+          {s?.intro && (
+            <p className="text-sm italic text-muted-foreground leading-relaxed border-l-2 border-muted pl-4">
+              {s.intro}
+            </p>
+          )}
+
+          {/* TOC */}
+          {s?.toc && s.toc.length > 0 && (
+            <div className="border border-border rounded-xl p-4 bg-card space-y-2">
+              <h2 className="text-sm font-semibold text-foreground/90 mb-2">목차</h2>
+              <ol className="space-y-1.5">
+                {s.toc.map((entry) => (
+                  <li key={entry.number}>
+                    <span className="text-sm font-medium">
+                      {entry.number}. {entry.title}
+                    </span>
+                    {entry.subsections && entry.subsections.length > 0 && (
+                      <ol className="ml-4 mt-1 space-y-1">
+                        {entry.subsections.map((sub) => (
+                          <li key={sub.number} className="text-xs text-muted-foreground">
+                            {sub.number}. {sub.title}
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {/* Sections */}
+          {s?.sections && s.sections.length > 0 && (
+            <div className="space-y-6">
+              {s.sections.map((section) => (
+                <div key={section.number} className="space-y-3">
+                  {/* Section header */}
+                  <h2 className="text-lg font-bold flex items-center flex-wrap gap-1">
+                    <span>{section.number}. {section.title}</span>
+                    {section.timestamp && <TimestampPill ts={section.timestamp} onSeek={seekTo} />}
+                  </h2>
+
+                  {/* Section intro */}
+                  {section.intro && (
+                    <p className="text-sm italic text-muted-foreground leading-relaxed">
+                      {section.intro}
+                    </p>
+                  )}
+
+                  {/* Subsections */}
+                  {section.subsections && section.subsections.length > 0 && (
+                    <div className="space-y-4 ml-1">
+                      {section.subsections.map((sub) => (
+                        <div key={sub.number} className="space-y-2">
+                          <h3 className="text-base font-semibold flex items-center flex-wrap gap-1 text-foreground/90">
+                            <span>{sub.number}. {sub.title}</span>
+                            {sub.timestamp && <TimestampPill ts={sub.timestamp} onSeek={seekTo} />}
+                          </h3>
+
+                          {sub.bullets && sub.bullets.length > 0 && (
+                            <ul className="space-y-1.5 ml-2">
+                              {sub.bullets.map((bullet, bi) => (
+                                <li key={bi} className="flex items-start gap-2 text-sm">
+                                  <span className="text-muted-foreground mt-1 shrink-0 text-xs">–</span>
+                                  <span className="leading-relaxed">
+                                    <span
+                                      dangerouslySetInnerHTML={{
+                                        __html: parseBold(
+                                          bullet.keyword
+                                            ? `**${bullet.keyword}**: ${bullet.text}`
+                                            : bullet.text
+                                        ),
+                                      }}
+                                    />
+                                    {hasSentences && bullet.sentence_numbers && bullet.sentence_numbers.length > 0 ? (
+                                      <SentenceBadge
+                                        sentenceNumbers={bullet.sentence_numbers}
+                                        highlighted={bullet.sentence_numbers.some((n) => highlightedNums.includes(n))}
+                                        onClick={() => handleHighlight(bullet.sentence_numbers!)}
+                                      />
+                                    ) : bullet.timestamp ? (
+                                      <button
+                                        onClick={() => seekTo(tsToSeconds(bullet.timestamp!))}
+                                        className="inline-block bg-gray-100 dark:bg-gray-800 text-blue-500 hover:text-blue-600 rounded px-1.5 py-0.5 text-xs font-mono ml-1 align-middle cursor-pointer"
+                                      >
+                                        {bullet.timestamp.startsWith("00:") ? bullet.timestamp.slice(3) : bullet.timestamp}
+                                      </button>
+                                    ) : null}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Tags */}
+          {s?.tags && s.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-2">
+              {s.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-xs bg-muted text-muted-foreground rounded-full px-3 py-1"
+                >
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
