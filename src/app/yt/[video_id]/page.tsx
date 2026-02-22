@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-client";
@@ -168,16 +168,23 @@ function parseBold(text: string): string {
   return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
 }
 
+const FIXED_STYLE: React.CSSProperties = {
+  position: "fixed",
+  top: "56px",
+  left: "14rem",
+  right: 0,
+  bottom: 0,
+  zIndex: 10,
+};
+
 function LoadingSkeleton() {
   return (
-    <div className="flex flex-col -mx-6 -my-6" style={{ height: "calc(100vh - 56px)" }}>
-      {/* Header skeleton */}
+    <div className="flex flex-col bg-background" style={FIXED_STYLE}>
       <div className="shrink-0 h-12 flex items-center px-4 border-b border-border gap-3">
         <Skeleton className="h-4 w-16" />
         <Skeleton className="h-4 flex-1 max-w-md" />
       </div>
       <div className="flex flex-1 min-h-0">
-        {/* Left panel skeleton */}
         <div className="w-96 shrink-0 border-r border-border flex flex-col">
           <Skeleton className="w-full aspect-video shrink-0" />
           <div className="flex-1 p-3 space-y-2">
@@ -186,13 +193,10 @@ function LoadingSkeleton() {
             ))}
           </div>
         </div>
-        {/* Right panel skeleton */}
         <div className="flex-1 p-6 space-y-4">
           <Skeleton className="h-6 w-1/3" />
           <Skeleton className="h-24 rounded-xl" />
           <Skeleton className="h-24 rounded-xl" />
-          <Skeleton className="h-6 w-1/4 mt-4" />
-          <Skeleton className="h-40 rounded-xl" />
           <Skeleton className="h-40 rounded-xl" />
         </div>
       </div>
@@ -216,7 +220,7 @@ function ScriptPanel({
           자막 ({sentences.length})
         </span>
       </div>
-      <div className="overflow-y-auto flex-1">
+      <div className="overflow-y-auto flex-1 scroll-thin">
         {sentences.map((s) => {
           const isHighlighted = highlightedNums.includes(s.num);
           return (
@@ -224,10 +228,10 @@ function ScriptPanel({
               key={s.num}
               data-sentence-num={s.num}
               onClick={() => onSeek(s.start_sec)}
-              className={`cursor-pointer flex gap-2 px-3 py-2 text-xs border-b border-border/40 transition-colors ${
+              className={`cursor-pointer flex gap-2 px-3 py-2 text-xs border-b border-border/40 border-l-2 transition-colors ${
                 isHighlighted
-                  ? "bg-blue-50 dark:bg-blue-950/30 border-l-2 border-l-blue-500"
-                  : "hover:bg-muted/50"
+                  ? "bg-blue-500/10 border-l-blue-500"
+                  : "border-l-transparent hover:bg-muted/50"
               }`}
             >
               <span className="text-muted-foreground/60 font-mono shrink-0 w-5 text-right pt-0.5">
@@ -359,7 +363,7 @@ export default function YtVideoPage() {
   const s = video.summary_json;
 
   return (
-    <div className="flex flex-col -mx-6 -my-6" style={{ height: "calc(100vh - 56px)" }}>
+    <div className="flex flex-col bg-background" style={FIXED_STYLE}>
       {/* Header bar */}
       <div className="shrink-0 h-12 flex items-center px-4 border-b border-border gap-3">
         <Link
@@ -405,7 +409,7 @@ export default function YtVideoPage() {
         </div>
 
         {/* Right panel: Summary */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6 pb-12">
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6 pb-12 scroll-thin">
           {/* Key Questions */}
           {s?.key_questions && s.key_questions.length > 0 && (
             <div className="space-y-3">
