@@ -11,7 +11,7 @@ import { ArrowLeft } from "lucide-react";
 interface Bullet {
   keyword: string;
   text: string;
-  source_idx?: number;
+  timestamp?: string;
 }
 
 interface Subsection {
@@ -87,11 +87,25 @@ function TimestampPill({ ts }: { ts: string }) {
   );
 }
 
-function SourceBadge({ idx }: { idx: number }) {
+function tsToSeconds(ts: string): number {
+  const parts = ts.split(":").map(Number);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return 0;
+}
+
+function TimestampBadge({ ts, videoId }: { ts: string; videoId: string }) {
+  const seconds = tsToSeconds(ts);
+  const label = ts.startsWith("00:") ? ts.slice(3) : ts;
   return (
-    <span className="inline-block text-purple-500 text-xs ml-1 align-middle">
-      [{idx}]
-    </span>
+    <a
+      href={`https://www.youtube.com/watch?v=${videoId}&t=${seconds}s`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-block bg-gray-100 dark:bg-gray-800 text-blue-500 hover:text-blue-600 rounded px-1.5 py-0.5 text-xs font-mono ml-1 align-middle"
+    >
+      {label}
+    </a>
   );
 }
 
@@ -317,6 +331,9 @@ export default function YtVideoPage() {
                                     ),
                                   }}
                                 />
+                                {bullet.timestamp && (
+                                  <TimestampBadge ts={bullet.timestamp} videoId={video.video_id} />
+                                )}
                               </span>
                             </li>
                           ))}
