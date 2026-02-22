@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { spawnSync } from "child_process";
+import { spawn } from "child_process";
 
 interface ChatMessage {
   role: "user" | "ai";
@@ -42,6 +42,48 @@ export async function POST(
     return NextResponse.json({ error: "영상을 찾을 수 없습니다" }, { status: 404 });
   }
 
+  // 릴레이 프록시 (VIVO_RELAY_URL 설정 시 VivoBook 릴레이로 위임)
+  const VIVO_RELAY_URL = process.env.VIVO_RELAY_URL;
+  const RELAY_SECRET = process.env.RELAY_SECRET;
+
+  if (VIVO_RELAY_URL && RELAY_SECRET) {
+    let relayRes: Response;
+    try {
+      relayRes = await fetch(`${VIVO_RELAY_URL}/api/yt/${video_id}/chat-relay`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Relay-Secret": RELAY_SECRET,
+        },
+        body: JSON.stringify({
+          message,
+          history,
+          title: video.title,
+          channel: video.channel,
+          sentences: video.sentences,
+          summary_json: video.summary_json,
+        }),
+      });
+    } catch (fetchErr) {
+      console.error("릴레이 fetch 오류:", fetchErr);
+      return NextResponse.json({ error: "릴레이 서버에 연결할 수 없습니다" }, { status: 502 });
+    }
+
+    if (!relayRes.ok || !relayRes.body) {
+      console.error("릴레이 응답 오류:", relayRes.status);
+      return NextResponse.json({ error: "릴레이 서버 오류" }, { status: 502 });
+    }
+
+    // SSE 스트림 그대로 파이프 (투명 프록시)
+    return new Response(relayRes.body, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      },
+    });
+  }
+
   // 자막 텍스트 구성
   const transcriptText = Array.isArray(video.sentences) && video.sentences.length > 0
     ? video.sentences
@@ -49,7 +91,7 @@ export async function POST(
         .join("\n")
     : "(자막 없음)";
 
-  // 대화 기록 구성 (초기 인사 제외)
+  // 대화 기록 구성
   const historyText = history.length > 0
     ? history.map((m) => `${m.role === "user" ? "사용자" : "AI"}: ${m.content}`).join("\n") + "\n\n"
     : "";
@@ -70,27 +112,47 @@ ${historyText}사용자: ${message}
 위 질문에 한국어로 간결하게 답하세요. 자막의 특정 문장을 인용할 때는 문장 번호([N])를 포함하세요.
 AI:`;
 
-  // Gemini CLI 실행 (spawnSync → 쉘 인젝션 없음)
-  const result = spawnSync("gemini", ["-p", prompt, "--yolo"], {
-    env: { ...process.env, HOME: "/home/john" },
-    timeout: 90000,
-    maxBuffer: 5 * 1024 * 1024,
+  // Gemini CLI 스트리밍 (절대 경로 사용)
+  const enc = new TextEncoder();
+
+  const stream = new ReadableStream({
+    start(controller) {
+      const child = spawn(
+        "/home/john/.nvm/versions/node/v20.19.6/bin/gemini",
+        ["-p", prompt, "--yolo"],
+        { env: { ...process.env, HOME: "/home/john" } }
+      );
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        controller.enqueue(enc.encode(`data: ${JSON.stringify({ chunk: chunk.toString() })}\n\n`));
+      });
+
+      child.stderr.on("data", (chunk: Buffer) => {
+        console.error("Gemini stderr:", chunk.toString());
+      });
+
+      child.on("error", (err) => {
+        console.error("Gemini spawn error:", err);
+        controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: "Gemini CLI 실행 실패 (로컬 전용)" })}\n\n`));
+        controller.enqueue(enc.encode("data: [DONE]\n\n"));
+        controller.close();
+      });
+
+      child.on("close", (code) => {
+        if (code !== 0) {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: "Gemini 응답 생성 실패" })}\n\n`));
+        }
+        controller.enqueue(enc.encode("data: [DONE]\n\n"));
+        controller.close();
+      });
+    },
   });
 
-  if (result.error) {
-    console.error("Gemini CLI error:", result.error);
-    return NextResponse.json(
-      { error: "Gemini CLI를 실행할 수 없습니다. 로컬 환경에서만 동작합니다." },
-      { status: 503 }
-    );
-  }
-
-  if (result.status !== 0) {
-    const stderr = result.stderr?.toString() || "";
-    console.error("Gemini CLI stderr:", stderr);
-    return NextResponse.json({ error: "Gemini 응답 생성 실패" }, { status: 500 });
-  }
-
-  const response = result.stdout?.toString().trim() || "";
-  return NextResponse.json({ response });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
 }
