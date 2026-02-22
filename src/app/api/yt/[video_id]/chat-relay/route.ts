@@ -113,6 +113,12 @@ AI:`;
 
   const stream = new ReadableStream({
     start(controller) {
+      // Vercel 10s 타임아웃 방지: 즉시 keepalive 전송 후 3초마다 반복
+      controller.enqueue(enc.encode(": ping\n\n"));
+      const keepalive = setInterval(() => {
+        try { controller.enqueue(enc.encode(": ping\n\n")); } catch { /* 스트림 종료 후 무시 */ }
+      }, 3000);
+
       const child = spawn(
         "/home/john/.nvm/versions/node/v20.19.6/bin/gemini",
         ["-p", prompt, "--yolo"],
@@ -130,6 +136,7 @@ AI:`;
       });
 
       child.on("error", (err) => {
+        clearInterval(keepalive);
         console.error("Gemini spawn error (relay):", err);
         controller.enqueue(
           enc.encode(
@@ -141,6 +148,7 @@ AI:`;
       });
 
       child.on("close", (code) => {
+        clearInterval(keepalive);
         if (code !== 0) {
           controller.enqueue(
             enc.encode(
