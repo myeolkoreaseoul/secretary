@@ -317,9 +317,6 @@ export default function YtVideoPage() {
                                     ),
                                   }}
                                 />
-                                {bullet.source_idx !== undefined && (
-                                  <SourceBadge idx={bullet.source_idx} />
-                                )}
                               </span>
                             </li>
                           ))}
