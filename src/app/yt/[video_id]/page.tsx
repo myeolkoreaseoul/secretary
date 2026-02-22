@@ -91,6 +91,11 @@ interface SummaryJson {
   tags?: string[];
 }
 
+interface ChatMsg {
+  role: "user" | "ai";
+  content: string;
+}
+
 interface YtVideo {
   id: string;
   video_id: string;
@@ -253,6 +258,138 @@ function ScriptPanel({
   );
 }
 
+function YtChatPanel({
+  videoId,
+  keyQuestions,
+}: {
+  videoId: string;
+  keyQuestions?: KeyQuestion[];
+}) {
+  const [messages, setMessages] = React.useState<ChatMsg[]>([
+    { role: "ai", content: "이 영상에 대해 궁금한 것을 물어보세요." },
+  ]);
+  const [input, setInput] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const send = useCallback(
+    async (text: string) => {
+      if (!text.trim() || loading) return;
+      const userMsg: ChatMsg = { role: "user", content: text };
+      // 히스토리: 초기 인사 제외하고 전달
+      const history = messages.slice(1);
+      setMessages((prev) => [...prev, userMsg]);
+      setInput("");
+      setLoading(true);
+      try {
+        const res = await apiFetch(`/api/yt/${videoId}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, history }),
+        });
+        const data = await res.json();
+        setMessages((prev) => [
+          ...prev,
+          { role: "ai", content: data.response || data.error || "오류가 발생했습니다." },
+        ]);
+      } catch {
+        setMessages((prev) => [...prev, { role: "ai", content: "네트워크 오류가 발생했습니다." }]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [videoId, messages, loading]
+  );
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  return (
+    <div className="w-72 shrink-0 flex flex-col border-l border-border overflow-hidden">
+      {/* Header */}
+      <div className="shrink-0 px-3 py-2 border-b border-border flex items-center justify-between">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          AI 채팅
+        </span>
+        <button
+          onClick={() =>
+            setMessages([{ role: "ai", content: "이 영상에 대해 궁금한 것을 물어보세요." }])
+          }
+          className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          초기화
+        </button>
+      </div>
+
+      {/* Quick questions */}
+      {keyQuestions && keyQuestions.length > 0 && messages.length <= 1 && (
+        <div className="shrink-0 px-3 py-2 border-b border-border space-y-1.5">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">빠른 질문</p>
+          {keyQuestions.slice(0, 3).map((kq, i) => (
+            <button
+              key={i}
+              onClick={() => send(kq.question)}
+              className="w-full text-left text-xs px-2 py-1.5 rounded border border-border hover:bg-muted/50 transition-colors text-foreground/80 line-clamp-2"
+            >
+              {kq.emoji} {kq.question}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 scroll-thin">
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div
+              className={`max-w-[90%] rounded-xl px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap ${
+                m.role === "user"
+                  ? "bg-blue-500 text-white"
+                  : "bg-muted text-foreground"
+              }`}
+            >
+              {m.content}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-muted rounded-xl px-3 py-2 text-xs text-muted-foreground animate-pulse">
+              생각 중...
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <div className="shrink-0 border-t border-border px-3 py-2 flex items-center gap-2">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              send(input);
+            }
+          }}
+          placeholder="질문 입력..."
+          className="flex-1 text-xs bg-transparent outline-none placeholder:text-muted-foreground"
+          disabled={loading}
+        />
+        <button
+          onClick={() => send(input)}
+          disabled={!input.trim() || loading}
+          className="text-xs text-blue-500 hover:text-blue-400 disabled:opacity-40 transition-colors shrink-0 font-medium"
+        >
+          전송
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function YtVideoPage() {
   const params = useParams();
   const video_id = params.video_id as string;
@@ -408,7 +545,7 @@ export default function YtVideoPage() {
           )}
         </div>
 
-        {/* Right panel: Summary */}
+        {/* Middle panel: Summary */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6 pb-12 scroll-thin">
           {/* Key Questions */}
           {s?.key_questions && s.key_questions.length > 0 && (
@@ -558,6 +695,9 @@ export default function YtVideoPage() {
             </div>
           )}
         </div>
+
+        {/* Right panel: AI Chat */}
+        <YtChatPanel videoId={video_id} keyQuestions={s?.key_questions} />
       </div>
     </div>
   );
