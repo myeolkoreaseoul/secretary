@@ -174,6 +174,7 @@ async def save_to_db(
                 "conversation_id": conv_id,
                 "role": "user",
                 "content": truncate_content(user_content),
+                "token_count": None,
                 "model": parsed.model or model,
                 "message_at": _iso_now(),
             })
@@ -188,8 +189,8 @@ async def save_to_db(
             "conversation_id": conv_id,
             "role": "assistant",
             "content": truncate_content(assistant_content),
-            "model": parsed.model or model,
             "token_count": parsed.output_tokens,
+            "model": parsed.model or model,
             "message_at": _iso_now(),
         })
 
