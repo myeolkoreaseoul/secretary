@@ -9,7 +9,9 @@ Optimized for minimal round-trips: 2 main tools instead of 8.
 import asyncio
 import json
 import logging
+import re
 import sys
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from mcp.server import Server
@@ -99,7 +101,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="add_todo",
-            description="할일을 추가합니다.",
+            description="할일을 추가합니다. 플래닝 시 estimated_minutes와 time_hint도 함께 설정하세요.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -107,6 +109,8 @@ async def list_tools() -> list[Tool]:
                     "category": {"type": "string", "description": "카테고리명 (선택)"},
                     "due_date": {"type": "string", "description": "마감일 YYYY-MM-DD (선택)"},
                     "priority": {"type": "integer", "description": "우선순위 0~5 (기본: 0)"},
+                    "estimated_minutes": {"type": "integer", "description": "예상 소요시간(분). AI가 추정 (선택)"},
+                    "time_hint": {"type": "string", "description": "시간 힌트: '오전', '15:00', '점심 후' 등 (선택)"},
                 },
                 "required": ["title"],
             },
@@ -169,6 +173,72 @@ async def list_tools() -> list[Tool]:
                     "chat_id": {"type": "integer", "description": "텔레그램 chat_id"},
                 },
                 "required": ["chat_id"],
+            },
+        ),
+        Tool(
+            name="get_daily_plan",
+            description="오늘(또는 지정 날짜)의 계획, 할일, 어제 리뷰를 조회합니다. 플래닝 시 가장 먼저 호출하세요.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string", "description": "날짜 YYYY-MM-DD (기본: 오늘)"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="save_daily_plan",
+            description="AI가 생성한 시간표를 저장합니다. 타임블록 배치가 완료되면 호출하세요.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string", "description": "날짜 YYYY-MM-DD"},
+                    "plan": {
+                        "type": "array",
+                        "description": "타임블록 배열 [{start, end, task, category, priority}]",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "start": {"type": "string", "description": "시작 HH:MM"},
+                                "end": {"type": "string", "description": "종료 HH:MM"},
+                                "task": {"type": "string", "description": "할일 내용"},
+                                "category": {"type": "string", "description": "카테고리"},
+                                "priority": {"type": "integer", "description": "우선순위 0~3"},
+                            },
+                            "required": ["start", "end", "task"],
+                        },
+                    },
+                    "plan_text": {"type": "string", "description": "오늘의 핵심 목표 한줄 요약"},
+                },
+                "required": ["date", "plan"],
+            },
+        ),
+        Tool(
+            name="update_plan_block",
+            description="기존 계획의 특정 블록을 수정/삭제/삽입합니다. 수시 변경에 사용하세요.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string", "description": "날짜 YYYY-MM-DD (기본: 오늘)"},
+                    "action": {
+                        "type": "string",
+                        "enum": ["delete", "update", "insert"],
+                        "description": "delete: 블록 삭제, update: 블록 수정, insert: 새 블록 삽입",
+                    },
+                    "target_start": {"type": "string", "description": "대상 블록의 시작 시간 HH:MM (delete/update 시 필수)"},
+                    "block": {
+                        "type": "object",
+                        "description": "새/수정 블록 {start, end, task, category, priority} (update/insert 시 필수)",
+                        "properties": {
+                            "start": {"type": "string"},
+                            "end": {"type": "string"},
+                            "task": {"type": "string"},
+                            "category": {"type": "string"},
+                            "priority": {"type": "integer"},
+                        },
+                    },
+                },
+                "required": ["action"],
             },
         ),
     ]
@@ -296,6 +366,8 @@ async def _dispatch(name: str, args: dict) -> dict:
             category_id=category_id,
             due_date=args.get("due_date"),
             priority=args.get("priority", 0),
+            estimated_minutes=args.get("estimated_minutes"),
+            time_hint=args.get("time_hint"),
         )
         return {"id": todo["id"], "status": "created"}
 
@@ -342,6 +414,15 @@ async def _dispatch(name: str, args: dict) -> dict:
             ],
         }
 
+    elif name == "get_daily_plan":
+        return await _get_daily_plan(args)
+
+    elif name == "save_daily_plan":
+        return await _save_daily_plan(args)
+
+    elif name == "update_plan_block":
+        return await _update_plan_block(args)
+
     else:
         return {"error": f"Unknown tool: {name}"}
 
@@ -379,7 +460,6 @@ async def _get_weather(args: dict) -> dict:
     hourly = data["hourly"]
 
     # Build 24-hour forecast (next 24 entries from current hour)
-    from datetime import datetime
     now_hour = datetime.now().hour
     forecast_24h = []
     for i in range(now_hour, min(now_hour + 24, len(hourly["time"]))):
@@ -442,6 +522,201 @@ async def _web_search(args: dict) -> dict:
     except Exception as e:
         log.error("Web search failed: %s", e)
         return {"error": "검색 중 오류가 발생했습니다", "query": query}
+
+
+# ---------------------------------------------------------------------------
+# Daily Plan tools
+# ---------------------------------------------------------------------------
+
+# Fixed time blocks — these NEVER move
+FIXED_BLOCKS = [
+    {"start": "09:00", "end": "09:30", "task": "아침식사", "category": "식사", "type": "fixed"},
+    {"start": "12:00", "end": "13:00", "task": "점심", "category": "식사", "type": "fixed"},
+    {"start": "15:00", "end": "15:20", "task": "간식", "category": "식사", "type": "fixed"},
+    {"start": "18:00", "end": "18:30", "task": "저녁", "category": "식사", "type": "fixed"},
+    {"start": "19:00", "end": "20:00", "task": "팀버핏", "category": "운동", "type": "fixed"},
+]
+
+FIXED_START_TIMES = {b["start"] for b in FIXED_BLOCKS}
+
+_TIME_RE = re.compile(r"^\d{2}:\d{2}$")
+_KST = timezone(timedelta(hours=9))
+
+
+async def _get_daily_plan(args: dict) -> dict:
+    kst = _KST
+    date_str = args.get("date") or datetime.now(kst).strftime("%Y-%m-%d")
+    yesterday = (datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Fetch today's report, yesterday's report, and todos in parallel
+    today_task = db._request("GET", f"daily_reports_v2?report_date=eq.{date_str}&select=stats,content")
+    yesterday_task = db._request("GET", f"daily_reports_v2?report_date=eq.{yesterday}&select=stats")
+    todos_task = db._request(
+        "GET",
+        "todos?is_done=eq.false&select=id,title,priority,due_date,estimated_minutes,time_hint&order=priority.desc,created_at.asc",
+    )
+
+    today_data, yesterday_data, todos = await asyncio.gather(
+        today_task, yesterday_task, todos_task
+    )
+
+    today_data = today_data or []
+    yesterday_data = yesterday_data or []
+    todos = todos or []
+
+    # Extract plan from today's stats
+    today_stats = today_data[0]["stats"] if today_data else {}
+    plan = today_stats.get("plan", []) if today_stats else []
+    plan_text = today_stats.get("plan_text", "") if today_stats else ""
+
+    # Extract yesterday's review
+    yesterday_stats = yesterday_data[0]["stats"] if yesterday_data else {}
+    yesterday_review = yesterday_stats.get("review", {}) if yesterday_stats else {}
+
+    # Filter todos for today (due today, overdue, or no due date)
+    relevant_todos = [
+        t for t in todos
+        if not t.get("due_date") or t["due_date"] <= date_str
+    ]
+
+    return {
+        "date": date_str,
+        "plan": plan,
+        "plan_text": plan_text,
+        "fixed_blocks": FIXED_BLOCKS,
+        "todos": relevant_todos,
+        "yesterday_review": yesterday_review,
+    }
+
+
+async def _save_daily_plan(args: dict) -> dict:
+    date_str = args["date"]
+    plan = args["plan"]
+    # Defend against Claude sending plan as JSON string instead of list
+    if isinstance(plan, str):
+        try:
+            plan = json.loads(plan)
+        except (json.JSONDecodeError, TypeError):
+            plan = []
+    if not isinstance(plan, list):
+        plan = []
+    plan_text = args.get("plan_text", "")
+
+    # Get existing stats to merge
+    existing = await db._request("GET", f"daily_reports_v2?report_date=eq.{date_str}&select=stats")
+    existing = existing or []
+    existing_stats = existing[0]["stats"] if existing else {}
+    if not existing_stats:
+        existing_stats = {}
+
+    # Merge plan into stats (preserve other fields like actual, review)
+    new_stats = {**existing_stats, "plan": plan, "plan_text": plan_text, "fixed_blocks": FIXED_BLOCKS}
+
+    if existing:
+        # Row exists — PATCH
+        await db._request(
+            "PATCH",
+            f"daily_reports_v2?report_date=eq.{date_str}",
+            json_body={"stats": new_stats},
+        )
+    else:
+        # New date — POST
+        await db._request(
+            "POST",
+            "daily_reports_v2",
+            json_body={"report_date": date_str, "stats": new_stats},
+            headers={"Prefer": "return=minimal"},
+        )
+
+    return {"saved": True, "date": date_str, "block_count": len(plan)}
+
+
+async def _update_plan_block(args: dict) -> dict:
+    date_str = args.get("date") or datetime.now(_KST).strftime("%Y-%m-%d")
+    action = args["action"]
+    target_start = args.get("target_start")
+    block = args.get("block")
+
+    # Load current plan
+    existing = await db._request("GET", f"daily_reports_v2?report_date=eq.{date_str}&select=stats")
+    existing = existing or []
+    existing_stats = existing[0]["stats"] if existing else {}
+    if not existing_stats:
+        existing_stats = {}
+    plan = existing_stats.get("plan", [])
+    if isinstance(plan, str):
+        try:
+            plan = json.loads(plan)
+        except (json.JSONDecodeError, TypeError):
+            plan = []
+    if not isinstance(plan, list):
+        plan = []
+    plan = list(plan)
+
+    if action == "delete":
+        if not target_start:
+            return {"error": "delete에는 target_start가 필요합니다"}
+        if target_start in FIXED_START_TIMES:
+            return {"error": f"고정 블록({target_start})은 삭제할 수 없습니다"}
+        before = len(plan)
+        plan = [b for b in plan if b.get("start") != target_start]
+        if len(plan) == before:
+            return {"error": f"{target_start} 시작 블록을 찾을 수 없습니다"}
+
+    elif action == "update":
+        if not target_start or not block:
+            return {"error": "update에는 target_start와 block이 필요합니다"}
+        if target_start in FIXED_START_TIMES:
+            return {"error": f"고정 블록({target_start})은 수정할 수 없습니다"}
+        found = False
+        for i, b in enumerate(plan):
+            if b.get("start") == target_start:
+                plan[i] = {**b, **block}
+                found = True
+                break
+        if not found:
+            return {"error": f"{target_start} 시작 블록을 찾을 수 없습니다"}
+
+    elif action == "insert":
+        if not block or not block.get("start") or not block.get("end") or not block.get("task"):
+            return {"error": "insert에는 block(start, end, task 포함)이 필요합니다"}
+        # Validate time format
+        new_start = block["start"]
+        new_end = block["end"]
+        if not _TIME_RE.match(new_start) or not _TIME_RE.match(new_end):
+            return {"error": "시간은 HH:MM 형식이어야 합니다 (예: 09:30)"}
+        # Check fixed block collision
+        for fb in FIXED_BLOCKS:
+            if new_start < fb["end"] and new_end > fb["start"]:
+                return {"error": f"고정 블록({fb['start']}~{fb['end']} {fb['task']})과 겹칩니다"}
+        plan.append(block)
+
+    else:
+        return {"error": f"알 수 없는 action: {action}. delete/update/insert 중 하나를 사용하세요"}
+
+    # Sort by start time
+    plan.sort(key=lambda b: b.get("start", ""))
+
+    # Save back (preserve existing stats fields)
+    new_stats = {**existing_stats, "plan": plan}
+
+    if existing:
+        # Row exists — PATCH
+        await db._request(
+            "PATCH",
+            f"daily_reports_v2?report_date=eq.{date_str}",
+            json_body={"stats": new_stats},
+        )
+    else:
+        # No row yet — POST (upsert)
+        await db._request(
+            "POST",
+            "daily_reports_v2",
+            json_body={"report_date": date_str, "stats": new_stats},
+            headers={"Prefer": "return=minimal,resolution=merge-duplicates"},
+        )
+
+    return {"updated": True, "action": action, "date": date_str, "block_count": len(plan)}
 
 
 async def main():
