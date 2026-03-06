@@ -24,6 +24,7 @@ from bot.config import SUPABASE_REST_URL, SUPABASE_HEADERS, SUPABASE_URL, SUPABA
 
 from scripts.collectors import ParsedConversation
 from scripts.collectors import claude_code, codex_cli, gemini_cli
+from scripts.collectors import claude_web, chatgpt_web
 
 logger = logging.getLogger("collector")
 
@@ -181,6 +182,14 @@ PROVIDERS = {
     "gemini_cli": {
         "module": gemini_cli,
         "base_path": Path.home() / ".gemini",
+    },
+    "claude_web": {
+        "module": claude_web,
+        "base_path": Path.home() / "downloads",
+    },
+    "chatgpt_web": {
+        "module": chatgpt_web,
+        "base_path": Path.home() / "downloads",
     },
 }
 
