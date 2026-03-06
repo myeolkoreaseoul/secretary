@@ -1,6 +1,25 @@
 # AI Secretary v2 — 프로젝트 진행 현황
 
-> 최종 업데이트: 2026-02-16 (Phase 1A~1D 전체 구현 완료)
+> 최종 업데이트: 2026-03-06
+
+---
+
+## 2026-03-06: AI 생태계 리서치 + 제로베이스 리디자인 준비
+- AI 생태계 4개 영역 병렬 리서치 완료 → docs/ai-ecosystem-research-2026-03-06.md (579줄)
+  - 통합 게이트웨이: Open WebUI(126K), LiteLLM(38K), LibreChat(34K) 등
+  - CLI 도구: Aider(41.5K), simonw/llm(11.3K) 등 + 각 CLI 저장 경로/스키마 정리
+  - AI 토론: LLM Council(Karpathy, 15.3K), ChatALL(16.3K), Arena 등
+  - 대화 수집: CTK, entire(3.4K), ccusage(11.3K) 발견
+- 비전 확장: "모든 AI 대화 수집" → 통합 AI Gateway + Conversation Collector 아키텍처 도출
+- 에이전트 통신 표준 조사: MCP(Anthropic), A2A(Google), ACP(IBM), ANP
+
+## 2026-03-06: 프론트엔드 제로베이스 리디자인 준비
+- docs/ 정리: 초기 분석/리뷰 문서 21개를 docs/archive/로 이동, 핵심 4개만 루트 유지
+- 프로덕트 토론 진행: 메뉴 구조 재정의
+  - 입력 3채널: CLI(secretary 전용) / 텔레그램 / 웹 /chat — 모두 DB 저장
+  - 출력 6메뉴: Dashboard / Tasks / Time / History / Scouter(아이디어+YT통합) / Settings
+- 트래킹 3레이어 정의: 작업물(work-log, 작동중) / PC활동(미가동) / 모바일(Google서비스, 미구현)
+- 이전 토스 리디자인(b7e3b80)은 실패 — 구조가 아닌 색상만 바꿔서 폐기 결정
 
 ---
 

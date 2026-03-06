@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS digests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   digest_date DATE NOT NULL,
-  mode TEXT NOT NULL CHECK (mode IN ('morning', 'evening')),
+  mode TEXT NOT NULL CHECK (mode IN ('morning', 'evening', 'trending')),
   videos JSONB NOT NULL DEFAULT '[]',
   header TEXT,
   video_count INT DEFAULT 0,
