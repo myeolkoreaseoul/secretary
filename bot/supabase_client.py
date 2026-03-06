@@ -355,6 +355,8 @@ async def add_todo(
     due_date: str | None = None,
     priority: int = 0,
     source: str = "telegram",
+    estimated_minutes: int | None = None,
+    time_hint: str | None = None,
 ) -> dict:
     """Add a new todo item."""
     body: dict[str, Any] = {"title": title, "priority": priority, "source": source}
@@ -362,6 +364,10 @@ async def add_todo(
         body["category_id"] = category_id
     if due_date:
         body["due_date"] = due_date
+    if estimated_minutes is not None:
+        body["estimated_minutes"] = estimated_minutes
+    if time_hint:
+        body["time_hint"] = time_hint
 
     result = await _request("POST", "todos", json_body=body)
     log.info("Added todo: %s", title[:50])

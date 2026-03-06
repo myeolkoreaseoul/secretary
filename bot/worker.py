@@ -11,6 +11,7 @@ import fcntl
 import json
 import logging
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -28,8 +29,26 @@ CLAUDE_MD = BOT_DIR / "CLAUDE.md"
 SESSIONS_FILE = BOT_DIR / "sessions.json"
 WORKSPACE_DIR = Path("/home/john/projects/workspace")
 SESSION_TTL = 7 * 24 * 60 * 60  # 7 days — Claude CLI auto-compacts long sessions
-CLAUDE_TIMEOUT = 600  # 10 minutes
+CLAUDE_TIMEOUT_DEFAULT = 1800  # 30 minutes (was 600)
+CLAUDE_TIMEOUT_LONG = 3600  # 60 minutes for complex tasks
 DRAIN_WAIT = 0.5  # seconds to wait for additional messages
+MAX_RETRIES = 3  # max retry attempts for failed messages
+ZOMBIE_TIMEOUT = 1800  # seconds before a "processing" message is considered zombie
+
+# Keywords that indicate a complex/long-running task
+_LONG_TASK_KEYWORDS = re.compile(
+    r"루프런|looprun|구현|코딩|빌드|테스트|qa|리팩토|수정해|만들어|"
+    r"설치|배포|작성|프로젝트|개발|멈추지.?말|끝까지|될때까지|자러간다|"
+    r"implement|build|deploy|refactor|coding",
+    re.IGNORECASE,
+)
+
+
+def _get_timeout(content: str) -> int:
+    """Return appropriate timeout based on message content."""
+    if _LONG_TASK_KEYWORDS.search(content):
+        return CLAUDE_TIMEOUT_LONG
+    return CLAUDE_TIMEOUT_DEFAULT
 
 
 # ---------------------------------------------------------------------------
@@ -178,20 +197,21 @@ def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
         f"위 워크플로우에 따라 처리해주세요."
     )
 
+    timeout = _get_timeout(message_content)
     session_id = get_session(chat_id)
 
-    success, output = _invoke_claude(prompt, chat_id, session_id)
+    success, output = _invoke_claude(prompt, chat_id, session_id, timeout)
 
     # If resume failed, retry without session
     if not success and session_id:
         log.warning("Resume failed for chat_id=%s, retrying without session", chat_id)
         clear_session(chat_id)
-        success, output = _invoke_claude(prompt, chat_id, session_id=None)
+        success, output = _invoke_claude(prompt, chat_id, session_id=None, timeout=timeout)
 
     return success, output
 
 
-def _invoke_claude(prompt: str, chat_id: int, session_id: str | None) -> tuple[bool, str]:
+def _invoke_claude(prompt: str, chat_id: int, session_id: str | None, timeout: int) -> tuple[bool, str]:
     """Low-level Claude CLI invocation."""
     cmd = [
         "claude", "-p",
@@ -212,7 +232,7 @@ def _invoke_claude(prompt: str, chat_id: int, session_id: str | None) -> tuple[b
     log.info(
         "Executing Claude CLI (resume=%s, timeout=%ds)...",
         session_id[:8] if session_id else "new",
-        CLAUDE_TIMEOUT,
+        timeout,
     )
 
     try:
@@ -220,7 +240,7 @@ def _invoke_claude(prompt: str, chat_id: int, session_id: str | None) -> tuple[b
             cmd,
             capture_output=True,
             text=True,
-            timeout=CLAUDE_TIMEOUT,
+            timeout=timeout,
             cwd=str(WORKSPACE_DIR),
             env=env,
         )
@@ -239,7 +259,7 @@ def _invoke_claude(prompt: str, chat_id: int, session_id: str | None) -> tuple[b
         return False, result.stderr[:500] or f"exit_code={result.returncode}"
 
     except subprocess.TimeoutExpired:
-        log.error("Claude CLI timed out after %ds", CLAUDE_TIMEOUT)
+        log.error("Claude CLI timed out after %ds", timeout)
         return False, "timeout"
     except FileNotFoundError:
         log.error("Claude CLI not found in PATH")
@@ -290,6 +310,100 @@ async def drain_messages(chat_id: int, first_content: str) -> tuple[str, list[st
 
     combined = "\n".join(parts)
     return combined, extra_queue_ids
+
+
+# ---------------------------------------------------------------------------
+# Zombie Recovery & Retry Logic (#3, #4)
+# ---------------------------------------------------------------------------
+
+async def recover_zombie_messages() -> int:
+    """Reset 'processing' messages that have been stuck (zombie recovery).
+
+    Called on worker startup. Returns the number of recovered messages.
+    """
+    recovered = 0
+    try:
+        result = await db._request(
+            "GET",
+            "message_queue",
+            params={"status": "eq.processing", "order": "created_at.asc"},
+        )
+        if not result:
+            return 0
+
+        for msg in result:
+            log.warning(
+                "Recovering zombie message queue_id=%s (created_at=%s)",
+                msg["id"], msg.get("created_at"),
+            )
+            await db.requeue_message(msg["id"])
+            recovered += 1
+
+    except Exception as e:
+        log.error("Zombie recovery failed: %s", e)
+
+    if recovered:
+        log.info("Recovered %d zombie message(s)", recovered)
+    return recovered
+
+
+async def retry_recent_failures() -> int:
+    """Re-queue recently failed 'timeout' messages for retry (max MAX_RETRIES).
+
+    Only retries messages with error_message='timeout' from the last hour.
+    Returns the number of retried messages.
+    """
+    retried = 0
+    try:
+        result = await db._request(
+            "GET",
+            "message_queue",
+            params={
+                "status": "eq.failed",
+                "error_message": "eq.timeout",
+                "order": "created_at.desc",
+                "limit": "5",
+            },
+        )
+        if not result:
+            return 0
+
+        for msg in result:
+            # Check retry count from metadata
+            metadata = msg.get("metadata") or {}
+            retry_count = metadata.get("retry_count", 0)
+
+            if retry_count >= MAX_RETRIES:
+                log.info(
+                    "Skipping retry for queue_id=%s (already retried %d times)",
+                    msg["id"], retry_count,
+                )
+                continue
+
+            # Update retry count in metadata and requeue
+            metadata["retry_count"] = retry_count + 1
+            await db._request(
+                "PATCH",
+                "message_queue",
+                params={"id": f"eq.{msg['id']}"},
+                json_body={
+                    "status": "pending",
+                    "error_message": None,
+                    "metadata": metadata,
+                },
+            )
+            log.info(
+                "Retrying message queue_id=%s (attempt %d/%d)",
+                msg["id"], retry_count + 1, MAX_RETRIES,
+            )
+            retried += 1
+
+    except Exception as e:
+        log.error("Retry logic failed: %s", e)
+
+    if retried:
+        log.info("Retried %d failed message(s)", retried)
+    return retried
 
 
 # ---------------------------------------------------------------------------
@@ -346,10 +460,15 @@ async def process_one() -> bool:
         else:
             for qid in all_queue_ids:
                 await db.fail_message(qid, output)
-            await tg.send_message(
-                chat_id,
-                "⚠️ 메시지 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
-            )
+            # Only send error message for non-timeout failures
+            # Timeout failures will be auto-retried
+            if output != "timeout":
+                await tg.send_message(
+                    chat_id,
+                    "⚠️ 메시지 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+                )
+            else:
+                log.info("Timeout failure — will be auto-retried on next cycle")
             log.error("Message processing failed queue_ids=%s: %s", all_queue_ids, output[:100])
 
     except Exception as e:
@@ -372,7 +491,16 @@ async def process_one() -> bool:
 async def main():
     require_env()
     WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
-    log.info("Starting message worker (poll_interval=%ds, timeout=%ds)...", POLL_INTERVAL, CLAUDE_TIMEOUT)
+    log.info(
+        "Starting message worker (poll=%ds, timeout=%d/%ds, retries=%d)...",
+        POLL_INTERVAL, CLAUDE_TIMEOUT_DEFAULT, CLAUDE_TIMEOUT_LONG, MAX_RETRIES,
+    )
+
+    # #3: Recover zombie messages on startup
+    await recover_zombie_messages()
+
+    # #4: Retry recently timed-out messages
+    await retry_recent_failures()
 
     try:
         while True:

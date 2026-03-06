@@ -20,8 +20,13 @@ def _mask_token(text: str) -> str:
     return str(text)
 
 
-async def send_message(chat_id: int, text: str) -> bool:
-    """Send a text message, auto-splitting if > 4096 chars."""
+async def send_message(chat_id: int, text: str, parse_mode: str | None = "Markdown") -> bool:
+    """Send a text message, auto-splitting if > 4096 chars.
+
+    Args:
+        parse_mode: "Markdown", "MarkdownV2", "HTML", or None for plain text.
+                    When set, falls back to plain text on parse failure.
+    """
     if not text:
         return False
 
@@ -31,16 +36,14 @@ async def send_message(chat_id: int, text: str) -> bool:
     async with httpx.AsyncClient(timeout=30.0) as client:
         for chunk in chunks:
             try:
-                resp = await client.post(
-                    f"{_BASE_URL}/sendMessage",
-                    json={
-                        "chat_id": chat_id,
-                        "text": chunk,
-                        "parse_mode": "Markdown",
-                    },
-                )
-                if resp.status_code != 200:
-                    # Retry without Markdown parse mode
+                payload = {"chat_id": chat_id, "text": chunk}
+                if parse_mode:
+                    payload["parse_mode"] = parse_mode
+
+                resp = await client.post(f"{_BASE_URL}/sendMessage", json=payload)
+
+                if resp.status_code != 200 and parse_mode:
+                    # Retry without parse_mode on formatting failure
                     resp = await client.post(
                         f"{_BASE_URL}/sendMessage",
                         json={"chat_id": chat_id, "text": chunk},

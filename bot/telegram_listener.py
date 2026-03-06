@@ -53,12 +53,15 @@ async def _summarize_youtube_bg(chat_id: int, url: str) -> None:
             timeout=300,
             cwd="/tmp",
         )
-        if result.returncode != 0 or not result.stdout.strip():
+        raw = result.stdout.strip()
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if result.returncode != 0 or start == -1 or end == 0:
             log.error("Summarization failed: %s", result.stderr[:200])
             await tg.send_message(chat_id, "❌ 요약 실패. 자막이 없거나 처리 중 오류가 발생했습니다.")
             return
 
-        data = json.loads(result.stdout.strip())
+        data = json.loads(raw[start:end])
         summary = data.get("summary", {})
         video_id = data.get("video_id", "")
         title = data.get("title", "")
