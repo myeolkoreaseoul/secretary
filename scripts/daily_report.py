@@ -1,23 +1,23 @@
 """Daily report generator.
 
-Runs via cron at 7am: 0 7 * * * python3 ~/projects/secretary/scripts/daily_report.py
+Runs via systemd timer at 7am KST.
 
 Gathers yesterday's hourly_summaries + telegram_messages,
-generates a report via Claude CLI, saves to daily_reports_v2,
+generates a report via Gemini CLI, saves to daily_reports_v2,
 and sends summary to Telegram.
 """
 
 import asyncio
 import json
 import logging
-import subprocess
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from bot.config import SUPABASE_REST_URL, SUPABASE_HEADERS, BOT_DIR
+from bot.config import SUPABASE_REST_URL, SUPABASE_HEADERS, TELEGRAM_ALLOWED_USERS
 from bot import telegram_sender as tg
 
 import httpx
@@ -27,6 +27,8 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
 log = logging.getLogger("daily_report")
+
+GEMINI_CLI = "/home/john/.nvm/versions/node/v20.19.6/bin/gemini"
 
 
 async def fetch_yesterday_data(client: httpx.AsyncClient, date_str: str) -> dict:
@@ -62,8 +64,8 @@ async def fetch_yesterday_data(client: httpx.AsyncClient, date_str: str) -> dict
     return {"summaries": summaries, "messages": messages}
 
 
-def generate_report_via_claude(date_str: str, data: dict) -> str | None:
-    """Use Claude CLI to generate a daily report."""
+async def generate_report_via_gemini_cli(date_str: str, data: dict) -> str | None:
+    """Use Gemini CLI (subscription) to generate a daily report."""
     prompt = (
         f"{date_str} Daily Report를 작성해주세요.\n\n"
         f"시간대별 활동 요약:\n{json.dumps(data['summaries'], ensure_ascii=False, indent=2)}\n\n"
@@ -77,29 +79,26 @@ def generate_report_via_claude(date_str: str, data: dict) -> str | None:
 
     prompt += (
         "\n위 데이터를 바탕으로 간결한 한국어 Daily Report를 작성하세요.\n"
-        "포맷: 1) 시간대별 요약 2) 주요 활동 3) 내일 제안"
+        "포맷: 1) 시간대별 요약 2) 주요 활동 3) 내일 제안\n"
+        "마크다운 문법 없이 텔레그램에서 읽기 쉬운 일반 텍스트로 작성하세요."
     )
 
-    cmd = [
-        "claude",
-        "-p",
-        "--dangerously-skip-permissions",
-        prompt,
-    ]
-
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=str(BOT_DIR.parent),
+        proc = await asyncio.create_subprocess_exec(
+            GEMINI_CLI, "-p", prompt,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "PATH": "/home/john/.nvm/versions/node/v20.19.6/bin:" + os.environ.get("PATH", "")},
         )
-        if result.returncode == 0:
-            return result.stdout.strip()
-        log.error("Claude CLI failed: %s", result.stderr[:200])
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode == 0 and stdout:
+            return stdout.decode().strip()
+        err_msg = stderr.decode()[:200] if stderr else "no output"
+        log.error("Gemini CLI failed (rc=%s): %s", proc.returncode, err_msg)
+    except asyncio.TimeoutError:
+        log.error("Gemini CLI timeout (120s)")
     except Exception as e:
-        log.error("Claude CLI error: %s", e)
+        log.error("Gemini CLI error: %s", e)
 
     return None
 
@@ -149,13 +148,13 @@ async def main():
             log.info("No data for %s, skipping report", date_str)
             return
 
-        # Generate report via Claude
-        report_content = generate_report_via_claude(date_str, data)
+        # Generate report via Gemini CLI
+        report_content = await generate_report_via_gemini_cli(date_str, data)
 
         if not report_content:
             # Fallback: simple summary
             report_content = (
-                f"# {date_str} Daily Report\n\n"
+                f"{date_str} Daily Report\n\n"
                 f"활동 시간: {len(data['summaries'])}시간\n"
                 f"텔레그램 메시지: {len(data['messages'])}개\n"
             )
@@ -167,9 +166,10 @@ async def main():
         else:
             log.error("Failed to save daily report")
 
-        # Send summary to Telegram (use first allowed user's chat_id)
-        # The chat_id should be configured; for now log the report
-        log.info("Report:\n%s", report_content[:500])
+        # Send to Telegram
+        for chat_id in TELEGRAM_ALLOWED_USERS:
+            await tg.send_message(chat_id, report_content, parse_mode=None)
+            log.info("Daily report sent to chat_id=%s", chat_id)
 
 
 if __name__ == "__main__":
