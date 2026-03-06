@@ -15,7 +15,6 @@ from scripts.collectors import (
     ConversationMeta,
     ParsedConversation,
     ParsedMessage,
-    UsageInfo,
     truncate_content,
 )
 

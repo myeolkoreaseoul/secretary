@@ -15,7 +15,6 @@ import hashlib
 import json
 import logging
 import os
-import signal
 import sys
 import time
 from pathlib import Path
@@ -51,6 +50,9 @@ TARGETS = {
     "anthropic": "https://api.anthropic.com",
     "openai": "https://api.openai.com",
 }
+
+# fire-and-forget DB 저장 task 추적
+_pending_tasks: set[asyncio.Task] = set()
 
 # ─── Supabase 클라이언트 ────────────────────────────────────
 
@@ -129,11 +131,18 @@ async def _cleanup_expired_sessions():
 
 # ─── DB 저장 ────────────────────────────────────────────────
 
+def _track_task(coro) -> asyncio.Task:
+    """create_task + 자동 추적/정리."""
+    task = asyncio.create_task(coro)
+    _pending_tasks.add(task)
+    task.add_done_callback(_pending_tasks.discard)
+    return task
+
+
 async def save_to_db(
     provider: str,
     model: str | None,
     request_messages: list | None,
-    system_prompt: str | None,
     parsed: ParsedResponse,
 ):
     """비동기 DB 저장 (fire-and-forget)."""
@@ -278,7 +287,6 @@ async def proxy_handler(request: web.Request):
     # 요청 바디 파싱
     request_model = None
     request_messages = None
-    system_prompt = None
     is_stream = False
 
     if body:
@@ -286,7 +294,6 @@ async def proxy_handler(request: web.Request):
             parsed_body = json.loads(body)
             request_model = parsed_body.get("model")
             request_messages = parsed_body.get("messages")
-            system_prompt = parsed_body.get("system")
             is_stream = parsed_body.get("stream", False)
         except json.JSONDecodeError:
             pass
@@ -329,16 +336,16 @@ async def proxy_handler(request: web.Request):
                 parsed = parser.finish()
 
                 # 비동기 DB 저장
-                asyncio.create_task(
-                    save_to_db(provider, request_model, request_messages, system_prompt, parsed)
+                _track_task(
+                    save_to_db(provider, request_model, request_messages, parsed)
                 )
             else:
                 # 비스트리밍: 전체 응답 전달
-                full_body = b""
+                full_body = bytearray()
                 async for chunk in resp.content.iter_any():
                     await response.write(chunk)
                     if len(full_body) < MAX_RESPONSE_BUFFER:
-                        full_body += chunk
+                        full_body.extend(chunk)
 
                 await response.write_eof()
 
@@ -364,7 +371,7 @@ async def proxy_handler(request: web.Request):
 
     except Exception as e:
         logger.error("Proxy error: %s", e)
-        return web.json_response({"error": str(e)}, status=502)
+        return web.json_response({"error": "bad_gateway"}, status=502)
 
 
 def _extract_non_stream_content(data: dict, provider: str) -> str:
@@ -409,6 +416,16 @@ async def on_startup(app: web.Application):
 
 async def on_cleanup(app: web.Application):
     app["cleanup_task"].cancel()
+    try:
+        await app["cleanup_task"]
+    except asyncio.CancelledError:
+        pass
+
+    # pending DB saves 대기 (최대 5초)
+    if _pending_tasks:
+        logger.info("Waiting for %d pending DB saves...", len(_pending_tasks))
+        await asyncio.wait(_pending_tasks, timeout=5.0)
+
     await app["client_session"].close()
     global _http_client
     if _http_client:

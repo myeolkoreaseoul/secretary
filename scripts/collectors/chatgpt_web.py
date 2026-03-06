@@ -64,8 +64,13 @@ def _linearize_mapping(mapping: dict) -> list[dict]:
     if not root_ids:
         root_ids = list(mapping.keys())[:1]
 
-    # DFS로 가장 긴 경로 찾기
-    def dfs(node_id: str) -> list[str]:
+    # DFS로 가장 긴 경로 찾기 (cycle 방어)
+    def dfs(node_id: str, visited: set | None = None) -> list[str]:
+        if visited is None:
+            visited = set()
+        if node_id in visited:
+            return []
+        visited.add(node_id)
         node = mapping.get(node_id)
         if not node:
             return [node_id]
@@ -74,7 +79,7 @@ def _linearize_mapping(mapping: dict) -> list[dict]:
             return [node_id]
         best = []
         for child_id in children:
-            path = dfs(child_id)
+            path = dfs(child_id, visited)
             if len(path) > len(best):
                 best = path
         return [node_id] + best

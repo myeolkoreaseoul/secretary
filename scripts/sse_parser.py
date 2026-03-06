@@ -6,6 +6,7 @@ TCP 청크 경계 처리: \n\n 이벤트 구분자 기준 버퍼링.
 
 from __future__ import annotations
 
+import codecs
 import json
 import logging
 from dataclasses import dataclass, field
@@ -42,14 +43,15 @@ class AnthropicSSEParser:
     def __init__(self):
         self.result = ParsedResponse(provider="anthropic")
         self._buffer = ""
+        self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._current_block_type: str | None = None
         self._current_tool: dict | None = None
 
     def feed(self, chunk: bytes | str) -> None:
         """바이트/문자열 청크를 버퍼에 추가하고 완성된 이벤트를 파싱."""
         if isinstance(chunk, bytes):
-            chunk = chunk.decode("utf-8", errors="replace")
-        self._buffer += chunk
+            chunk = self._decoder.decode(chunk, final=False)
+        self._buffer += chunk.replace("\r\n", "\n")
         self._process_buffer()
 
     def _process_buffer(self) -> None:
@@ -156,11 +158,12 @@ class OpenAISSEParser:
     def __init__(self):
         self.result = ParsedResponse(provider="openai")
         self._buffer = ""
+        self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
     def feed(self, chunk: bytes | str) -> None:
         if isinstance(chunk, bytes):
-            chunk = chunk.decode("utf-8", errors="replace")
-        self._buffer += chunk
+            chunk = self._decoder.decode(chunk, final=False)
+        self._buffer += chunk.replace("\r\n", "\n")
         self._process_buffer()
 
     def _process_buffer(self) -> None:
@@ -170,9 +173,12 @@ class OpenAISSEParser:
 
     def _parse_event(self, event_str: str) -> None:
         for line in event_str.split("\n"):
-            if not line.startswith("data: "):
+            if line.startswith("data: "):
+                data_str = line[6:].strip()
+            elif line.startswith("data:"):
+                data_str = line[5:].strip()
+            else:
                 continue
-            data_str = line[6:].strip()
             if data_str == "[DONE]":
                 return
 
