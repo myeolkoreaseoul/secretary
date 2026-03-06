@@ -45,6 +45,8 @@ __pycache__/
 logs/
 scripts/.collect_conversations.lock
 supabase/.temp/
+ideas-seed.md
+*.docx
 
 # vercel
 .vercel
