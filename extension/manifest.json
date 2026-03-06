@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Secretary Tracker",
+  "version": "1.0",
+  "description": "자동 브라우저 활동 기록",
+  "permissions": ["tabs", "alarms"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": [
+    "https://mwahabvsteokswykikgh.supabase.co/*"
+  ],
+  "icons": {}
+}

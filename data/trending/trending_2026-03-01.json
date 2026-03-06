@@ -1,0 +1,79 @@
+{
+  "collected_at": "2026-03-01T00:00:41.159927+00:00",
+  "filter": "excluded: 음악(10), 게임(20), 영화/애니(1), MV keywords",
+  "regions": {
+    "KR": [
+      {
+        "rank": 1,
+        "video_id": "FvGnwlGu0gI",
+        "title": "수술하고 퇴원하자마자 파피플레이 타임 5 !!!",
+        "channel": "흔한남매",
+        "channel_id": "UCU8uafr_iROxRVI6c23Q_bA",
+        "category_id": "24",
+        "category": "엔터",
+        "published_at": "2026-02-28T06:00:18Z",
+        "description": "숨 참으셨던 분들 숨 쉬세요 ㅠㅜㅠㅜㅠㅜㅠㅜ\n----------------------------------------------------\n음악출처\n\nKevin MacLeod의 Amazing Plan - Silent Film Dark에는 크리에이티브 커먼즈 저작자 표시 4.0 라이선스가 적용됩니다. https://creativecommons.org/lice",
+        "views": 251737,
+        "likes": 6750,
+        "comments": 2015,
+        "duration": "PT49M8S",
+        "url": "https://youtu.be/FvGnwlGu0gI"
+      },
+      {
+        "rank": 2,
+        "video_id": "T2PxMT7Aq6I",
+        "title": "[박서진] MY NAME IS SEO JIN",
+        "channel": "박서진",
+        "channel_id": "UCInYIznyqojL4rJc83pSJQA",
+        "category_id": "24",
+        "category": "엔터",
+        "published_at": "2026-02-28T06:00:22Z",
+        "description": "#박서진 #박서진유튜브 #박서진콘서트",
+        "views": 22192,
+        "likes": 3005,
+        "comments": 221,
+        "duration": "PT2M1S",
+        "url": "https://youtu.be/T2PxMT7Aq6I"
+      },
+      {
+        "rank": 3,
+        "video_id": "5bH1PPN2cr4",
+        "title": "작업장 100명을 죽이고 지옥에 가면 생기는 일",
+        "channel": "린친놈",
+        "channel_id": "UCoKrjoE9EYXxgX4oKXAnBtw",
+        "category_id": "22",
+        "category": "인물/블로그",
+        "published_at": "2026-02-28T13:56:10Z",
+        "description": "#리니지 클래식 #작업장 #매크로",
+        "views": 85480,
+        "likes": 1999,
+        "comments": 302,
+        "duration": "PT6M47S",
+        "url": "https://youtu.be/5bH1PPN2cr4"
+      },
+      {
+        "rank": 4,
+        "video_id": "dfiYfS4XMsE",
+        "title": "원큐 오빠... 밥이시네요 ㅎ ⚔️리니지 클래식",
+        "channel": "김팥순",
+        "channel_id": "UCCk96NNITxAavc1ED1VvnEg",
+        "category_id": "22",
+        "category": "인물/블로그",
+        "published_at": "2026-02-27T09:18:24Z",
+        "description": "SOOP 생방송 https://www.sooplive.co.kr/station/popoten\n\n\n#리니지클래식 #리니지 #원큐",
+        "views": 92397,
+        "likes": 1005,
+        "comments": 185,
+        "duration": "PT8M49S",
+        "url": "https://youtu.be/dfiYfS4XMsE"
+      }
+    ],
+    "US": [],
+    "JP": []
+  },
+  "raw_counts": {
+    "KR": 100,
+    "US": 0,
+    "JP": 0
+  }
+}

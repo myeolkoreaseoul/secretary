@@ -1,0 +1,14 @@
+{
+  "collected_at": "2026-02-28T00:00:44.681260+00:00",
+  "filter": "excluded: 음악(10), 게임(20), 영화/애니(1), MV keywords",
+  "regions": {
+    "KR": [],
+    "US": [],
+    "JP": []
+  },
+  "raw_counts": {
+    "KR": 0,
+    "US": 0,
+    "JP": 0
+  }
+}

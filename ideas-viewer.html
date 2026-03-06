@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>200 에이전틱 AI 아이디어</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e1e4e8; }
+
+  #header { position: sticky; top: 0; z-index: 100; background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
+  #header h1 { font-size: 18px; color: #58a6ff; font-weight: 600; }
+  #search { flex: 1; max-width: 400px; padding: 8px 14px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e1e4e8; font-size: 14px; }
+  #search:focus { outline: none; border-color: #58a6ff; }
+  #filter-bar { padding: 10px 24px; background: #0d1117; border-bottom: 1px solid #21262d; display: flex; gap: 8px; flex-wrap: wrap; }
+  .filter-btn { padding: 5px 12px; border-radius: 20px; border: 1px solid #30363d; background: transparent; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+  .filter-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+  .filter-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+
+  #content { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  h2 { color: #58a6ff; margin: 32px 0 16px; font-size: 20px; border-bottom: 1px solid #21262d; padding-bottom: 8px; }
+  h1 { color: #e1e4e8; margin-bottom: 8px; }
+  p { color: #8b949e; margin-bottom: 16px; font-size: 14px; }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 14px; }
+  th { background: #161b22; padding: 10px 12px; text-align: left; color: #8b949e; font-weight: 600; border-bottom: 2px solid #30363d; }
+  td { padding: 10px 12px; border-bottom: 1px solid #21262d; vertical-align: top; }
+  tr:hover td { background: #161b22; }
+
+  td:first-child { color: #8b949e; font-size: 12px; width: 36px; }
+  td:nth-child(2) strong { color: #e1e4e8; }
+  td:nth-child(2) { max-width: 400px; }
+  td:nth-child(3) { color: #8b949e; font-size: 13px; }
+  td:last-child { white-space: nowrap; }
+
+  .tag-secretary { background: #0d419d; color: #79c0ff; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+  .tag-openclaw { background: #1a4721; color: #56d364; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+  .tag-both { background: #3d1f00; color: #f0883e; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+
+  #stats { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+  .stat { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 20px; text-align: center; }
+  .stat-num { font-size: 28px; font-weight: 700; color: #58a6ff; }
+  .stat-label { font-size: 12px; color: #8b949e; margin-top: 2px; }
+
+  .hidden { display: none; }
+  #no-results { text-align: center; color: #8b949e; padding: 48px; }
+
+  hr { border: none; border-top: 1px solid #21262d; margin: 8px 0 24px; }
+  em { color: #8b949e; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>🔭 200 에이전틱 AI 아이디어</h1>
+  <input type="text" id="search" placeholder="아이디어 검색..." oninput="filterContent()">
+  <span id="count" style="color:#8b949e; font-size:13px; white-space:nowrap"></span>
+</div>
+
+<div id="filter-bar">
+  <button class="filter-btn active" onclick="setFilter('all', this)">전체</button>
+  <button class="filter-btn" onclick="setFilter('secretary', this)">Secretary</button>
+  <button class="filter-btn" onclick="setFilter('openclaw', this)">OpenClaw</button>
+  <button class="filter-btn cat-btn" onclick="setFilter('생산성', this)">생산성</button>
+  <button class="filter-btn cat-btn" onclick="setFilter('지식', this)">지식관리</button>
+  <button class="filter-btn cat-btn" onclick="setFilter('건강', this)">건강</button>
+  <button class="filter-btn cat-btn" onclick="setFilter('가정', this)">가정</button>
+  <button class="filter-btn cat-btn" onclick="setFilter('금융', this)">금융</button>
+  <button class="filter-btn cat-btn" onclick="setFilter('관계', this)">관계</button>
+  <button class="filter-btn cat-btn" onclick="setFilter('경력', this)">경력</button>
+  <button class="filter-btn cat-btn" onclick="setFilter('창작', this)">창작</button>
+  <button class="filter-btn cat-btn" onclick="setFilter('리서치', this)">리서치</button>
+  <button class="filter-btn cat-btn" onclick="setFilter('이머징', this)">이머징</button>
+</div>
+
+<div id="content">
+  <div id="stats">
+    <div class="stat"><div class="stat-num">200</div><div class="stat-label">총 아이디어</div></div>
+    <div class="stat"><div class="stat-num">10</div><div class="stat-label">카테고리</div></div>
+    <div class="stat"><div class="stat-num" id="stat-secretary">0</div><div class="stat-label">Secretary</div></div>
+    <div class="stat"><div class="stat-num" id="stat-openclaw">0</div><div class="stat-label">OpenClaw</div></div>
+  </div>
+  <div id="rendered"></div>
+  <div id="no-results" class="hidden">검색 결과가 없습니다.</div>
+</div>
+
+<script>
+let currentFilter = 'all';
+let mdContent = '';
+
+async function loadMarkdown() {
+  const res = await fetch('ideas-200.md');
+  mdContent = await res.text();
+  renderContent();
+}
+
+function renderContent() {
+  const html = marked.parse(mdContent);
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = html;
+
+  // Tag tool badges
+  wrapper.querySelectorAll('td:last-child').forEach(td => {
+    const text = td.textContent.trim();
+    if (text.includes('Secretary') && text.includes('OpenClaw')) {
+      td.innerHTML = '<span class="tag-both">Secretary + OpenClaw</span>';
+    } else if (text.includes('Secretary')) {
+      td.innerHTML = '<span class="tag-secretary">Secretary</span>';
+    } else if (text.includes('OpenClaw')) {
+      td.innerHTML = '<span class="tag-openclaw">OpenClaw</span>';
+    }
+  });
+
+  document.getElementById('rendered').innerHTML = wrapper.innerHTML;
+  updateStats();
+  filterContent();
+}
+
+function updateStats() {
+  const rows = document.querySelectorAll('#rendered table tbody tr');
+  let s = 0, o = 0;
+  rows.forEach(r => {
+    const last = r.querySelector('td:last-child');
+    if (!last) return;
+    const t = last.textContent;
+    if (t.includes('Secretary')) s++;
+    if (t.includes('OpenClaw')) o++;
+  });
+  document.getElementById('stat-secretary').textContent = s;
+  document.getElementById('stat-openclaw').textContent = o;
+}
+
+function setFilter(filter, btn) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  filterContent();
+}
+
+function filterContent() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const sections = document.querySelectorAll('#rendered h2');
+  let visibleCount = 0;
+
+  sections.forEach(h2 => {
+    const table = h2.nextElementSibling?.tagName === 'TABLE' ? h2.nextElementSibling : null;
+    if (!table) return;
+
+    const catText = h2.textContent.toLowerCase();
+
+    // Category filter matching
+    const catMap = {
+      '생산성': '생산성', '지식': '지식', '건강': '건강', '가정': '가정',
+      '금융': '금융', '관계': '관계', '경력': '경력', '창작': '창작',
+      '리서치': '리서치', '이머징': '이머징'
+    };
+
+    let catMatch = true;
+    if (currentFilter !== 'all' && currentFilter !== 'secretary' && currentFilter !== 'openclaw') {
+      catMatch = catText.includes(catMap[currentFilter] || currentFilter);
+    }
+
+    let sectionVisible = false;
+    const rows = table.querySelectorAll('tbody tr');
+
+    rows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      const toolCell = row.querySelector('td:last-child')?.textContent || '';
+
+      const toolMatch = currentFilter === 'all' ||
+        (currentFilter === 'secretary' && toolCell.includes('Secretary')) ||
+        (currentFilter === 'openclaw' && toolCell.includes('OpenClaw')) ||
+        catMatch;
+
+      const searchMatch = !q || text.includes(q);
+
+      if (toolMatch && searchMatch) {
+        row.classList.remove('hidden');
+        sectionVisible = true;
+        visibleCount++;
+      } else {
+        row.classList.add('hidden');
+      }
+    });
+
+    h2.style.display = sectionVisible ? '' : 'none';
+    if (table) table.style.display = sectionVisible ? '' : 'none';
+    // Also hide hr before hidden sections
+    const hr = h2.previousElementSibling;
+    if (hr?.tagName === 'HR') hr.style.display = sectionVisible ? '' : 'none';
+  });
+
+  document.getElementById('count').textContent = `${visibleCount}개 표시`;
+  document.getElementById('no-results').classList.toggle('hidden', visibleCount > 0);
+}
+
+loadMarkdown();
+</script>
+</body>
+</html>
