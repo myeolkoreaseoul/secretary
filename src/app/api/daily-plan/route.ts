@@ -30,7 +30,8 @@ export async function GET(request: NextRequest) {
     (t) => !t.due_date || t.due_date === date
   );
 
-  const plan = report?.stats?.plan || null;
+  const rawPlan = report?.stats?.plan || null;
+  const plan = typeof rawPlan === "string" ? JSON.parse(rawPlan) : rawPlan;
   const planText = report?.stats?.plan_text || "";
 
   return NextResponse.json({

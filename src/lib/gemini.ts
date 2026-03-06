@@ -12,3 +12,16 @@ export async function callGemini(systemPrompt: string, userMessage: string): Pro
   const response = result.response;
   return response.text();
 }
+
+/**
+ * Streaming version of Gemini API call.
+ */
+export async function streamGemini(systemPrompt: string, userMessage: string) {
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    systemInstruction: systemPrompt,
+  });
+
+  const result = await model.generateContentStream(userMessage);
+  return result.stream;
+}

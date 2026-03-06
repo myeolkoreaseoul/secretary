@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Sparkles, Plus, Trash2, Save, GripVertical } from "lucide-react";
+import { CATEGORIES } from "@/lib/constants";
 
 interface PlanBlock {
   start: string;
@@ -23,16 +24,6 @@ interface DailyPlanEditorProps {
   date: string;
 }
 
-const CATEGORIES = [
-  "업무",
-  "개발",
-  "건강",
-  "가족",
-  "소개팅비즈니스",
-  "온라인판매",
-  "기타",
-];
-
 export function DailyPlanEditor({ date }: DailyPlanEditorProps) {
   const [plan, setPlan] = useState<PlanBlock[]>([]);
   const [planText, setPlanText] = useState("");
@@ -44,7 +35,10 @@ export function DailyPlanEditor({ date }: DailyPlanEditorProps) {
     try {
       const res = await apiFetch(`/api/daily-plan?date=${date}`);
       const data = await res.json();
-      if (data.plan) setPlan(data.plan);
+      if (data.plan) {
+        const parsed = typeof data.plan === "string" ? JSON.parse(data.plan) : data.plan;
+        setPlan(Array.isArray(parsed) ? parsed : []);
+      }
       if (data.planText) setPlanText(data.planText);
     } catch {
       // ignore

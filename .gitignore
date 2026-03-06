@@ -40,6 +40,12 @@ bot/*.lock
 __pycache__/
 *.pyc
 
+# omc / temp
+.omc/
+logs/
+scripts/.collect_conversations.lock
+supabase/.temp/
+
 # vercel
 .vercel
 

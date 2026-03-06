@@ -6,16 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus } from "lucide-react";
-
-const CATEGORIES = [
-  "업무",
-  "개발",
-  "건강",
-  "가족",
-  "소개팅비즈니스",
-  "온라인판매",
-  "기타",
-];
+import { CATEGORIES } from "@/lib/constants";
 
 interface ManualTimeFormProps {
   initialHour?: number | null;

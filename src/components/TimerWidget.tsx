@@ -3,16 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { apiFetch } from "@/lib/api-client";
 import { Play, Square } from "lucide-react";
-
-const CATEGORIES = [
-  "업무",
-  "개발",
-  "건강",
-  "가족",
-  "소개팅비즈니스",
-  "온라인판매",
-  "기타",
-];
+import { CATEGORIES } from "@/lib/constants";
 
 function formatElapsed(seconds: number): string {
   const h = Math.floor(seconds / 3600);
