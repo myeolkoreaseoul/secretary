@@ -5,23 +5,22 @@ import { apiFetch } from "@/lib/api-client";
 import { Command } from "cmdk";
 import { useRouter } from "next/navigation";
 import {
-  Home,
   CheckSquare,
   Clock,
   Search,
+  LayoutGrid,
   MessageSquare,
-  Youtube,
   Settings,
   X,
 } from "lucide-react";
 
 const PAGES = [
-  { label: "대시보드", href: "/", icon: Home },
+  { label: "카테고리", href: "/categories", icon: LayoutGrid },
   { label: "대화", href: "/history", icon: MessageSquare },
   { label: "할일", href: "/todos", icon: CheckSquare },
   { label: "시간", href: "/time", icon: Clock },
-  { label: "유튜브", href: "/yt", icon: Youtube },
   { label: "설정", href: "/settings", icon: Settings },
+  { label: "검색", href: "/search", icon: Search },
 ];
 
 export function CommandPalette() {
@@ -98,7 +97,7 @@ export function CommandPalette() {
       if (searchMatch) {
         setOpen(false);
         setValue("");
-        router.push(`/history?q=${encodeURIComponent(searchMatch[1])}`);
+        router.push(`/search?q=${encodeURIComponent(searchMatch[1])}`);
         return;
       }
     },

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { streamGemini } from "@/lib/gemini";
+import { spawn } from "child_process";
 
 interface ChatMessage {
   role: "user" | "ai";
@@ -91,80 +91,68 @@ export async function POST(
         .join("\n")
     : "(자막 없음)";
 
-  // 요약 정보 구성 (자막이 없는 경우를 위한 보조 맥락)
-  let summaryText = "";
-  if (video.summary_json && typeof video.summary_json === 'object') {
-    const s = video.summary_json as any;
-    if (s.summary?.key_questions) {
-      summaryText += "\n## 핵심 질문 및 답변\n";
-      s.summary.key_questions.forEach((q: any) => {
-        summaryText += `Q: ${q.question}\nA: ${q.answer}\n`;
-      });
-    }
-    if (s.summary?.toc) {
-      summaryText += "\n## 목차\n";
-      s.summary.toc.forEach((t: any) => {
-        summaryText += `${t.number}. ${t.title}\n`;
-      });
-    }
-  }
-
   // 대화 기록 구성
   const historyText = history.length > 0
     ? history.map((m) => `${m.role === "user" ? "사용자" : "AI"}: ${m.content}`).join("\n") + "\n\n"
     : "";
 
   // 프롬프트 구성
-  const systemPrompt = `당신은 YouTube 영상 AI 도우미입니다. 아래 영상 내용을 기반으로 질문에 답하세요.
+  const prompt = `당신은 YouTube 영상 AI 도우미입니다. 아래 영상 내용을 기반으로 질문에 답하세요.
 
 ## 영상 정보
 제목: ${video.title}
 채널: ${video.channel}
 
-## 영상 핵심 요약${summaryText || "\n(요약 정보 없음)"}
-
 ## 전체 자막
 ${transcriptText}
 
 ---
-위 내용을 바탕으로 사용자의 질문에 한국어로 간결하게 답하세요. 자막의 특정 문장을 인용할 때는 문장 번호([N])를 포함하세요. 자막이 없는 경우 제공된 요약 정보를 최대한 활용하세요.`;
+${historyText}사용자: ${message}
 
-  const userMessage = `${historyText}사용자: ${message}`;
+위 질문에 한국어로 간결하게 답하세요. 자막의 특정 문장을 인용할 때는 문장 번호([N])를 포함하세요.
+AI:`;
 
+  // Gemini CLI 스트리밍 (절대 경로 사용)
   const enc = new TextEncoder();
 
-  try {
-    const stream = await streamGemini(systemPrompt, userMessage);
+  const stream = new ReadableStream({
+    start(controller) {
+      const child = spawn(
+        "/home/john/.nvm/versions/node/v20.19.6/bin/gemini",
+        ["-p", prompt, "--yolo"],
+        { env: { ...process.env, HOME: "/home/john" } }
+      );
 
-    const sseStream = new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const chunk of stream) {
-            const text = chunk.text();
-            if (text) {
-              controller.enqueue(enc.encode(`data: ${JSON.stringify({ chunk: text })}\n\n`));
-            }
-          }
-          controller.enqueue(enc.encode("data: [DONE]\n\n"));
-          controller.close();
-        } catch (streamErr) {
-          console.error("Gemini stream error:", streamErr);
-          controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: "스트리밍 중 오류가 발생했습니다" })}\n\n`));
-          controller.enqueue(enc.encode("data: [DONE]\n\n"));
-          controller.close();
+      child.stdout.on("data", (chunk: Buffer) => {
+        controller.enqueue(enc.encode(`data: ${JSON.stringify({ chunk: chunk.toString() })}\n\n`));
+      });
+
+      child.stderr.on("data", (chunk: Buffer) => {
+        console.error("Gemini stderr:", chunk.toString());
+      });
+
+      child.on("error", (err) => {
+        console.error("Gemini spawn error:", err);
+        controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: "Gemini CLI 실행 실패 (로컬 전용)" })}\n\n`));
+        controller.enqueue(enc.encode("data: [DONE]\n\n"));
+        controller.close();
+      });
+
+      child.on("close", (code) => {
+        if (code !== 0) {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: "Gemini 응답 생성 실패" })}\n\n`));
         }
-      },
-    });
+        controller.enqueue(enc.encode("data: [DONE]\n\n"));
+        controller.close();
+      });
+    },
+  });
 
-    return new Response(sseStream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-      },
-    });
-  } catch (genErr) {
-    console.error("Gemini SDK error:", genErr);
-    return NextResponse.json({ error: "Gemini API 호출 중 오류가 발생했습니다" }, { status: 500 });
-  }
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
 }

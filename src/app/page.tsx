@@ -1,189 +1,288 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { apiFetch } from "@/lib/api-client";
-import { CheckCircle2, Clock, MessageSquare, Circle } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  CheckSquare,
+  Clock,
+  MessageSquare,
+  ArrowRight,
+  Circle,
+  CheckCircle,
+} from "lucide-react";
+import { TimeGrid } from "@/components/TimeGrid";
+import { DailyPlanEditor } from "@/components/DailyPlanEditor";
+import type { Todo, HourlySummary, TelegramMessage, Category } from "@/types";
 
-interface Todo { id: string; title: string; priority: number; is_done: boolean; }
-interface TelegramMessage { id: string; role: string; content: string; created_at: string; }
+const priorityLabels: Record<number, { label: string; color: string }> = {
+  0: { label: "보통", color: "secondary" },
+  1: { label: "중요", color: "default" },
+  2: { label: "긴급", color: "destructive" },
+  3: { label: "매우긴급", color: "destructive" },
+};
 
-export default function Dashboard() {
-  const [todos, setTodos] = useState<Todo[]>([]);
-  const [history, setHistory] = useState<TelegramMessage[]>([]);
-  const [dailyPlanText, setDailyPlanText] = useState("");
-  const [pcActiveMinutes, setPcActiveMinutes] = useState(0);
+function getToday() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+export default function DashboardPage() {
+  const [todos, setTodos] = useState<(Todo & { category?: Category })[]>([]);
+  const [summaries, setSummaries] = useState<HourlySummary[]>([]);
+  const [recentMessages, setRecentMessages] = useState<TelegramMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const today = getToday();
+
+  const fetchDashboardData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [todosRes, timeRes, historyRes] = await Promise.all([
+        apiFetch("/api/todos"),
+        apiFetch(`/api/time?date=${today}`),
+        apiFetch("/api/history?page=1"),
+      ]);
+
+      const [todosData, timeData, historyData] = await Promise.all([
+        todosRes.json(),
+        timeRes.json(),
+        historyRes.json(),
+      ]);
+
+      setTodos(todosData.todos || []);
+      setSummaries(timeData.summaries || []);
+      setRecentMessages((historyData.messages || []).slice(0, 6));
+    } finally {
+      setLoading(false);
+    }
+  }, [today]);
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [fetchDashboardData]);
 
-  const fetchDashboardData = async () => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const [todosRes, historyRes, timeRes, planRes] = await Promise.all([
-        apiFetch("/api/todos?status=pending"),
-        apiFetch("/api/history?limit=5"),
-        apiFetch(`/api/time?date=${today}`),
-        apiFetch(`/api/daily-plan?date=${today}`)
-      ]);
-      if (todosRes.ok) setTodos((await todosRes.json()).todos || []);
-      if (historyRes.ok) setHistory((await historyRes.json()).messages || []);
-      if (timeRes.ok) {
-        const timeData = await timeRes.json();
-        const totalMin = (timeData.summaries || []).reduce((acc: number, h: any) => {
-          return acc + (h.top_apps || []).reduce((a2: number, app: any) => a2 + app.minutes, 0);
-        }, 0);
-        setPcActiveMinutes(totalMin);
-      }
-      if (planRes.ok) {
-        const planData = await planRes.json();
-        setDailyPlanText(planData.planText || "");
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const saveDailyPlan = async () => {
-    const today = new Date().toISOString().split('T')[0];
-    await apiFetch("/api/daily-plan", {
-      method: "POST",
-      body: JSON.stringify({ date: today, planText: dailyPlanText })
+  const toggleTodo = async (id: string, isDone: boolean) => {
+    await apiFetch("/api/todos", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, is_done: !isDone }),
     });
-    alert("Saved!");
+    fetchDashboardData();
   };
 
-  const doneCount = todos.filter(t => t.is_done).length;
-  const totalCount = todos.length;
+  const activeTodos = todos.filter((t) => !t.is_done);
+  const doneTodosCount = todos.filter((t) => t.is_done).length;
+
+  // Stats
+  const activeHours = summaries.filter(
+    (s) => s.top_apps && s.top_apps.length > 0
+  ).length;
+  const totalMinutes = summaries.reduce((acc, s) => {
+    return (
+      acc + (s.top_apps || []).reduce((a, app) => a + (app.minutes || 0), 0)
+    );
+  }, 0);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-3 gap-4">
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+        </div>
+        <Skeleton className="h-64" />
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-[800px] mx-auto space-y-5">
-      {/* Summary Cards */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {/* Pending Tasks */}
-        <div className="rounded-lg p-4 bg-bg-level1 border border-hairline">
-          <div className="flex items-center gap-2 text-grey-600 mb-2">
-            <CheckCircle2 size={14} />
-            <span className="text-[12px] font-semibold">Pending Tasks</span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-[36px] font-bold text-grey-900 leading-none">{todos.length}</span>
-            <span className="text-[12px] text-grey-500 font-medium">items</span>
-          </div>
-        </div>
-
-        {/* PC Time */}
-        <div className="rounded-lg p-4 bg-bg-level1 border border-hairline">
-          <div className="flex items-center gap-2 text-grey-600 mb-2">
-            <Clock size={14} />
-            <span className="text-[12px] font-semibold">PC Time Today</span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-[36px] font-bold text-grey-900 leading-none">{Math.floor(pcActiveMinutes/60)}h {pcActiveMinutes%60}m</span>
-          </div>
-        </div>
-
-        {/* Recent Chats */}
-        <div className="rounded-lg p-4 bg-bg-level1 border border-hairline">
-          <div className="flex items-center gap-2 text-grey-600 mb-2">
-            <MessageSquare size={14} />
-            <span className="text-[12px] font-semibold">Recent Chats</span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-[36px] font-bold text-grey-900 leading-none">{history.length}</span>
-            <span className="text-[12px] text-grey-500 font-medium">messages</span>
-          </div>
-        </div>
-      </section>
-
-      {/* Daily Plan */}
-      <section className="rounded-lg p-4 bg-bg-level1 border border-hairline">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-[15px] font-semibold text-grey-900 flex items-center gap-2">
-            <Clock size={16} className="text-blue-500" /> Daily Plan
-          </h2>
-          <div className="flex gap-2">
-            <button className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-grey-600 bg-bg-level2 hover:bg-bg-level3 transition-colors">
-              AI Generate
-            </button>
-            <button onClick={saveDailyPlan} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-blue-500 hover:bg-blue-600 transition-colors">
-              Save
-            </button>
-          </div>
-        </div>
-        <textarea
-          value={dailyPlanText}
-          onChange={(e) => setDailyPlanText(e.target.value)}
-          placeholder="09:00 - 10:00 Morning Check&#10;10:00 - 12:00 Deep Work"
-          className="w-full bg-bg-base border border-hairline rounded-lg p-3 text-[14px] text-grey-800 placeholder:text-grey-400 focus:outline-none focus:shadow-[0_0_0_2px_rgba(49,130,246,0.3)] min-h-[120px] resize-y font-mono"
-        />
-      </section>
-
-      {/* Tasks + Chat Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Top Tasks */}
-        <section className="rounded-lg p-4 bg-bg-level1 border border-hairline">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-[15px] font-semibold text-grey-900">Top Tasks</h2>
-            <a href="/todos" className="text-[12px] text-blue-500 font-semibold hover:text-blue-600">View All</a>
-          </div>
-          <div className="space-y-1">
-            {todos.slice(0, 5).map(todo => (
-              <div key={todo.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[rgba(217,217,255,0.11)] transition-colors">
-                <Circle size={16} className="text-grey-400 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[14px] text-grey-800 truncate">{todo.title}</p>
-                </div>
-                <span className={`text-[11px] px-1.5 py-0.5 rounded font-semibold ${
-                  todo.priority === 0 ? 'bg-red-500/10 text-red-500' : 'bg-bg-level2 text-grey-500'
-                }`}>
-                  P{todo.priority}
-                </span>
-              </div>
-            ))}
-            {todos.length === 0 && <p className="text-[14px] text-grey-500 text-center py-6">No pending tasks</p>}
-          </div>
-        </section>
-
-        {/* Recent Chat */}
-        <section className="rounded-lg p-4 bg-bg-level1 border border-hairline">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-[15px] font-semibold text-grey-900">Recent Chat</h2>
-            <a href="/history" className="text-[12px] text-blue-500 font-semibold hover:text-blue-600">View All</a>
-          </div>
-          <div className="space-y-3">
-            {history.map(msg => (
-              <div key={msg.id} className={`flex gap-2.5 ${msg.role === 'assistant' ? '' : 'flex-row-reverse'}`}>
-                <div className={`size-7 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold ${
-                  msg.role === 'assistant' ? 'bg-blue-500/10 text-blue-500' : 'bg-bg-level2 text-grey-600'
-                }`}>
-                  {msg.role === 'assistant' ? 'AI' : 'ME'}
-                </div>
-                <div className={`px-3 py-2 rounded-lg max-w-[80%] text-[13px] leading-relaxed ${
-                  msg.role === 'assistant'
-                    ? 'bg-bg-level2 text-grey-800 rounded-tl-sm'
-                    : 'bg-blue-500/10 text-blue-500 rounded-tr-sm'
-                }`}>
-                  <p className="line-clamp-2">{msg.content}</p>
-                </div>
-              </div>
-            ))}
-            {history.length === 0 && <p className="text-[14px] text-grey-500 text-center py-6">No recent history</p>}
-          </div>
-        </section>
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold">대시보드</h1>
+        <p className="text-muted-foreground text-sm mt-1">
+          {new Date().toLocaleDateString("ko-KR", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            weekday: "long",
+          })}
+        </p>
       </div>
 
-      {/* Activity Heatmap */}
-      <section className="rounded-lg p-4 bg-bg-level1 border border-hairline overflow-x-auto">
-        <h2 className="text-[15px] font-semibold text-grey-900 mb-3">Activity Heatmap</h2>
-        <div className="flex gap-1 min-w-[600px]">
-          {Array.from({length: 24}).map((_, i) => (
-            <div key={i} className="flex-1 flex flex-col gap-1 items-center">
-              <div className="w-full h-7 rounded bg-bg-level2 hover:bg-blue-500/20 transition-colors" title={`${i}:00`} />
-              <span className="text-[10px] text-grey-500">{i}</span>
+      {/* Quick Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <CheckSquare className="w-5 h-5 text-primary" />
+              <div>
+                <p className="text-2xl font-bold">{activeTodos.length}</p>
+                <p className="text-xs text-muted-foreground">
+                  진행중 / {doneTodosCount}완료
+                </p>
+              </div>
             </div>
-          ))}
-        </div>
-      </section>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <Clock className="w-5 h-5 text-primary" />
+              <div>
+                <p className="text-2xl font-bold">{activeHours}h</p>
+                <p className="text-xs text-muted-foreground">
+                  활동 시간 / {Math.round(totalMinutes)}분
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <MessageSquare className="w-5 h-5 text-primary" />
+              <div>
+                <p className="text-2xl font-bold">{recentMessages.length}</p>
+                <p className="text-xs text-muted-foreground">최근 대화</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Daily Plan */}
+      <DailyPlanEditor date={today} />
+
+      {/* Two column layout */}
+      <div className="grid grid-cols-2 gap-6">
+        {/* Today's Todos */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm">오늘 할일</CardTitle>
+              <Link
+                href="/todos"
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+              >
+                전체 보기
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {activeTodos.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                모든 할일을 완료했습니다
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {activeTodos.slice(0, 8).map((todo) => {
+                  const p = priorityLabels[todo.priority] || priorityLabels[0];
+                  return (
+                    <div
+                      key={todo.id}
+                      className="flex items-center gap-2 group"
+                    >
+                      <button
+                        onClick={() => toggleTodo(todo.id, todo.is_done)}
+                        className="text-muted-foreground hover:text-foreground shrink-0"
+                      >
+                        {todo.is_done ? (
+                          <CheckCircle className="w-4 h-4 text-primary" />
+                        ) : (
+                          <Circle className="w-4 h-4" />
+                        )}
+                      </button>
+                      <span className="text-sm truncate flex-1">
+                        {todo.title}
+                      </span>
+                      {todo.priority > 0 && (
+                        <Badge
+                          variant={
+                            p.color as "default" | "secondary" | "destructive"
+                          }
+                          className="text-[10px] shrink-0"
+                        >
+                          P{todo.priority}
+                        </Badge>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Recent Messages */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm">최근 대화</CardTitle>
+              <Link
+                href="/history"
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+              >
+                전체 보기
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {recentMessages.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                아직 대화가 없습니다
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {recentMessages.map((msg) => (
+                  <div key={msg.id} className="flex items-start gap-2">
+                    <Badge
+                      variant={msg.role === "user" ? "default" : "secondary"}
+                      className="text-[10px] shrink-0 mt-0.5"
+                    >
+                      {msg.role === "user" ? "나" : "비서"}
+                    </Badge>
+                    <p className="text-xs text-muted-foreground line-clamp-1 flex-1">
+                      {msg.content}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Mini Time Grid */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm">오늘 시간 추적</CardTitle>
+            <Link
+              href="/time"
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+            >
+              상세 보기
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <TimeGrid summaries={summaries} />
+        </CardContent>
+      </Card>
     </div>
   );
 }

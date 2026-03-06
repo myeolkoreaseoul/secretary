@@ -1,128 +1,181 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "@/lib/api-client";
-import { Calendar as CalendarIcon, Clock, Target, CheckCircle2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Trash2 } from "lucide-react";
+import { TimeGrid } from "@/components/TimeGrid";
+import { ManualTimeForm } from "@/components/ManualTimeForm";
+import { DailyPlanEditor } from "@/components/DailyPlanEditor";
+import type { HourlySummary, ActivityLog, DailyReportV2 } from "@/types";
+
+interface TimeData {
+  date: string;
+  summaries: HourlySummary[];
+  logs: ActivityLog[];
+  report: DailyReportV2 | null;
+}
 
 export default function TimePage() {
-  const [activeTab, setActiveTab] = useState('log');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [timeLogs, setTimeLogs] = useState<any[]>([]);
-  const [plan, setPlan] = useState("");
+  const [date, setDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  });
+  const [data, setData] = useState<TimeData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedHour, setSelectedHour] = useState<number | null>(null);
 
-  useEffect(() => {
-    fetchTimeData();
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/time?date=${date}`);
+      const json = await res.json();
+      setData(json);
+    } finally {
+      setLoading(false);
+    }
   }, [date]);
 
-  const fetchTimeData = async () => {
-    const [logRes, planRes] = await Promise.all([
-      apiFetch(`/api/time?date=${date}`),
-      apiFetch(`/api/daily-plan?date=${date}`)
-    ]);
-    if(logRes.ok) setTimeLogs((await logRes.json()).summaries || []);
-    if(planRes.ok) setPlan((await planRes.json()).planText || "");
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleHourClick = (hour: number) => {
+    setSelectedHour(hour);
+    document
+      .getElementById("manual-time-form")
+      ?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const tabs = [
-    { id: 'log', label: 'Time Logs' },
-    { id: 'plan', label: 'Plan vs Actual' },
-    { id: 'weekly', label: 'Weekly Trend' },
-  ];
+  const deleteLog = async (id: string) => {
+    await apiFetch(`/api/time?id=${id}`, { method: "DELETE" });
+    fetchData();
+  };
 
   return (
-    <div className="max-w-[800px] mx-auto space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-[20px] font-bold text-grey-900">Time Management</h1>
-        <div className="flex items-center gap-2 bg-bg-level1 border border-hairline rounded-lg px-3 py-1.5">
-          <CalendarIcon size={14} className="text-grey-500" />
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent text-[13px] text-grey-800 outline-none" />
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold">시간 추적</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            하루 활동을 시간대별로 확인하고 수동으로 기록합니다
+          </p>
         </div>
+        <Input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="w-auto"
+        />
       </div>
 
-      {/* L2: Sub Tabs */}
-      <div className="flex gap-0 border-b border-hairline">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`relative px-4 py-2.5 text-[14px] font-semibold transition-colors ${
-              activeTab === tab.id ? "text-grey-900" : "text-grey-500 hover:text-grey-700"
-            }`}
-          >
-            {tab.label}
-            {activeTab === tab.id && (
-              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-[2px] bg-blue-500 rounded-full" />
-            )}
-          </button>
-        ))}
-      </div>
+      {loading ? (
+        <div className="space-y-3">
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      ) : data ? (
+        <div className="space-y-6">
+          {/* Time Grid */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">24시간 그리드</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TimeGrid
+                summaries={data.summaries}
+                onHourClick={handleHourClick}
+              />
+            </CardContent>
+          </Card>
 
-      {activeTab === 'log' && (
-        <div className="rounded-lg p-4 bg-bg-level1 border border-hairline">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="text-[12px] font-semibold text-grey-500 mb-3">Hourly Breakdown</h3>
-              <div className="space-y-1">
-                {Array.from({length: 24}).map((_, i) => {
-                  const log = timeLogs.find(l => l.hour === i);
-                  return (
-                    <div key={i} className="flex gap-3 items-center group">
-                      <div className="w-10 text-[12px] font-mono text-grey-500 text-right">{i}:00</div>
-                      <div className="flex-1 min-h-[32px] bg-bg-base border border-hairline rounded-lg px-2 py-1.5 group-hover:bg-bg-level2 transition-colors flex items-center">
-                        {log && log.top_apps.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {log.top_apps.map((app: any, idx: number) => (
-                              <span key={idx} className="text-[11px] px-1.5 py-0.5 rounded bg-bg-level2 text-grey-700">
-                                {app.app} <span className="text-grey-500">({app.minutes}m)</span>
-                              </span>
-                            ))}
-                          </div>
-                        ) : <span className="text-[11px] text-grey-400">No data</span>}
-                      </div>
+          {/* Daily Plan */}
+          <DailyPlanEditor date={date} />
+
+          {/* Manual Time Form */}
+          <div id="manual-time-form">
+            <ManualTimeForm
+              key={selectedHour}
+              initialHour={selectedHour}
+              date={date}
+              onSaved={() => {
+                setSelectedHour(null);
+                fetchData();
+              }}
+            />
+          </div>
+
+          {/* Daily Report */}
+          {data.report?.content && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Daily Report</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm whitespace-pre-wrap">
+                  {data.report.content}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Raw Logs */}
+          {data.logs.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">
+                  활동 로그 ({data.logs.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="max-h-64 overflow-y-auto space-y-1">
+                  {data.logs.slice(0, 100).map((log) => (
+                    <div
+                      key={log.id}
+                      className="flex items-center gap-3 text-xs py-1 group"
+                    >
+                      <span className="text-muted-foreground w-12 shrink-0">
+                        {new Date(log.recorded_at).toLocaleTimeString(
+                          "ko-KR",
+                          {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }
+                        )}
+                      </span>
+                      <span className="text-muted-foreground w-20 shrink-0 truncate">
+                        {log.app_name || "-"}
+                      </span>
+                      <span className="truncate flex-1">
+                        {log.window_title}
+                      </span>
+                      <button
+                        onClick={() => deleteLog(log.id)}
+                        className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div>
-              <h3 className="text-[12px] font-semibold text-grey-500 mb-3">Manual Entry</h3>
-              <div className="bg-bg-base border border-hairline rounded-lg p-3 space-y-3">
-                <div className="flex gap-3">
-                  <input type="time" className="bg-bg-level1 border border-hairline rounded-lg px-3 py-2 text-[13px] text-grey-800 outline-none w-28" />
-                  <input type="time" className="bg-bg-level1 border border-hairline rounded-lg px-3 py-2 text-[13px] text-grey-800 outline-none w-28" />
+                  ))}
                 </div>
-                <input placeholder="What did you do?" className="w-full bg-bg-level1 border border-hairline rounded-lg px-3 py-2 text-[13px] text-grey-800 placeholder:text-grey-400 outline-none" />
-                <select className="w-full bg-bg-level1 border border-hairline rounded-lg px-3 py-2 text-[13px] text-grey-600 outline-none">
-                  <option>Select Category</option>
-                  <option>Deep Work</option>
-                  <option>Meeting</option>
-                  <option>Break</option>
-                </select>
-                <button className="w-full py-2 bg-blue-500 text-white font-semibold text-[13px] rounded-lg hover:bg-blue-600 transition-colors">Add Log</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+              </CardContent>
+            </Card>
+          )}
 
-      {activeTab === 'plan' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-lg p-4 bg-bg-level1 border border-hairline">
-            <h3 className="text-[12px] font-semibold text-grey-500 mb-3 flex items-center gap-2"><Target size={14} className="text-blue-500"/> Planned</h3>
-            <pre className="text-[13px] text-grey-700 font-mono whitespace-pre-wrap">{plan || "No plan for this day."}</pre>
-          </div>
-          <div className="rounded-lg p-4 bg-bg-level1 border border-hairline">
-            <h3 className="text-[12px] font-semibold text-grey-500 mb-3 flex items-center gap-2"><CheckCircle2 size={14} className="text-green-500"/> Actual Analysis (AI)</h3>
-            <p className="text-[13px] text-grey-500">Click generate to analyze today&apos;s performance...</p>
-            <button className="mt-3 px-3 py-1.5 rounded-lg bg-bg-level2 text-[12px] font-semibold text-grey-700 hover:bg-bg-level3 transition-colors">Run Analysis</button>
-          </div>
+          {data.summaries.length === 0 && data.logs.length === 0 && (
+            <p className="text-center text-muted-foreground py-12">
+              이 날짜에 기록된 활동이 없습니다
+            </p>
+          )}
         </div>
-      )}
-
-      {activeTab === 'weekly' && (
-        <div className="rounded-lg p-4 bg-bg-level1 border border-hairline">
-          <p className="text-[14px] text-grey-500 text-center py-8">Weekly trend chart coming soon.</p>
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }

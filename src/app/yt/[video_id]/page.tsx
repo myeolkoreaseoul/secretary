@@ -276,9 +276,9 @@ function YtChatPanel({
     async (text: string) => {
       if (!text.trim() || loading) return;
       const userMsg: ChatMsg = { role: "user", content: text };
+      // 히스토리: 초기 인사 제외하고 전달
       const history = messages.slice(1);
-      // AI 메시지 자리를 미리 추가 (스트리밍 채울 위치)
-      setMessages((prev) => [...prev, userMsg, { role: "ai", content: "" }]);
+      setMessages((prev) => [...prev, userMsg]);
       setInput("");
       setLoading(true);
       try {
@@ -287,47 +287,13 @@ function YtChatPanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: text, history }),
         });
-
-        const reader = res.body?.getReader();
-        if (!reader) throw new Error("No stream");
-        const decoder = new TextDecoder();
-        let buf = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const lines = buf.split("\n");
-          buf = lines.pop() ?? "";
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const payload = line.slice(6);
-            if (payload === "[DONE]") break;
-            try {
-              const data = JSON.parse(payload);
-              if (data.chunk) {
-                setMessages((prev) => {
-                  const updated = [...prev];
-                  const last = updated[updated.length - 1];
-                  updated[updated.length - 1] = { ...last, content: last.content + data.chunk };
-                  return updated;
-                });
-              } else if (data.error) {
-                setMessages((prev) => {
-                  const updated = [...prev];
-                  updated[updated.length - 1] = { ...updated[updated.length - 1], content: data.error };
-                  return updated;
-                });
-              }
-            } catch { /* ignore malformed lines */ }
-          }
-        }
+        const data = await res.json();
+        setMessages((prev) => [
+          ...prev,
+          { role: "ai", content: data.response || data.error || "오류가 발생했습니다." },
+        ]);
       } catch {
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = { ...updated[updated.length - 1], content: "네트워크 오류가 발생했습니다." };
-          return updated;
-        });
+        setMessages((prev) => [...prev, { role: "ai", content: "네트워크 오류가 발생했습니다." }]);
       } finally {
         setLoading(false);
       }

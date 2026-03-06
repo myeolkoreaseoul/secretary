@@ -1,98 +1,293 @@
 "use client";
-import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api-client";
-import { Search, Trash2, Calendar } from "lucide-react";
 
-interface TelegramMessage { id: string; role: string; content: string; created_at: string; classification?: any; }
+import { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "@/lib/api-client";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Trash2,
+  Save,
+  X,
+} from "lucide-react";
+import type { TelegramMessage, Category, MessageClassification } from "@/types";
+
+interface HistoryResponse {
+  messages: (TelegramMessage & { category: Category | null })[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+function formatDate(dateStr: string) {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+function formatTime(dateStr: string) {
+  const d = new Date(dateStr);
+  return d.toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export default function HistoryPage() {
-  const [messages, setMessages] = useState<TelegramMessage[]>([]);
-  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [data, setData] = useState<HistoryResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchHistory = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page) });
+      if (query) params.set("q", query);
+      const res = await apiFetch(`/api/history?${params}`);
+      const json = await res.json();
+      setData(json);
+    } finally {
+      setLoading(false);
+    }
+  }, [query, page]);
 
   useEffect(() => {
     fetchHistory();
-  }, [page]);
+  }, [fetchHistory]);
 
-  const fetchHistory = async () => {
-    const res = await apiFetch(`/api/history?page=${page}&limit=50`);
-    if (res.ok) setMessages((await res.json()).messages || []);
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPage(1);
+    fetchHistory();
   };
 
   const deleteMessage = async (id: string) => {
-    if(!confirm("Delete?")) return;
     await apiFetch(`/api/history?id=${id}`, { method: "DELETE" });
     fetchHistory();
   };
 
-  const grouped = messages.reduce((acc, msg) => {
-    const date = new Date(msg.created_at).toLocaleDateString();
-    if(!acc[date]) acc[date] = [];
-    acc[date].push(msg);
-    return acc;
-  }, {} as Record<string, TelegramMessage[]>);
+  const editMessage = async (id: string, content: string) => {
+    await apiFetch("/api/history", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, content }),
+    });
+    fetchHistory();
+  };
+
+  // Group messages by date
+  const groupedByDate: Record<string, HistoryResponse["messages"]> = {};
+  for (const msg of data?.messages || []) {
+    const dateKey = formatDate(msg.created_at);
+    if (!groupedByDate[dateKey]) groupedByDate[dateKey] = [];
+    groupedByDate[dateKey].push(msg);
+  }
 
   return (
-    <div className="max-w-[800px] mx-auto space-y-5">
-      <h1 className="text-[20px] font-bold text-grey-900">History</h1>
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold">대화 히스토리</h1>
+        <p className="text-muted-foreground text-sm mt-1">
+          텔레그램 대화를 날짜별로 확인하고 편집합니다
+        </p>
+      </div>
 
       {/* Search */}
-      <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-bg-level1 border border-hairline focus-within:shadow-[0_0_0_2px_rgba(49,130,246,0.3)]">
-        <Search size={16} className="text-grey-500" />
-        <input
-          value={search} onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search conversations..."
-          className="flex-1 bg-transparent text-[14px] text-grey-800 placeholder:text-grey-400 outline-none"
+      <form onSubmit={handleSearch} className="flex gap-2 mb-6">
+        <Input
+          placeholder="메시지 검색..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="max-w-sm"
         />
-      </div>
+        <Button type="submit" size="sm" variant="secondary">
+          <Search className="w-4 h-4" />
+          검색
+        </Button>
+      </form>
 
       {/* Messages */}
-      <div className="space-y-6">
-        {Object.entries(grouped).map(([date, msgs]) => (
-          <div key={date} className="space-y-3">
-            <div className="flex items-center gap-2 text-grey-500 text-[12px] font-semibold px-1">
-              <Calendar size={12} />
-              {date}
-              <div className="flex-1 h-px bg-hairline ml-2" />
+      {loading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-20 w-full" />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {Object.entries(groupedByDate).map(([dateStr, msgs]) => (
+            <div key={dateStr}>
+              <h2 className="text-sm font-semibold text-muted-foreground mb-3">
+                {dateStr}
+              </h2>
+              <div className="space-y-2">
+                {msgs.map((msg) => (
+                  <MessageItem
+                    key={msg.id}
+                    message={msg}
+                    onDelete={deleteMessage}
+                    onEdit={editMessage}
+                  />
+                ))}
+              </div>
             </div>
+          ))}
 
-            <div className="space-y-3">
-              {msgs.map(msg => (
-                <div key={msg.id} className={`group flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                  <div className={`size-8 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold ${
-                    msg.role === 'user' ? 'bg-bg-level2 text-grey-600' : 'bg-blue-500/10 text-blue-500'
-                  }`}>
-                    {msg.role === 'user' ? 'ME' : 'AI'}
-                  </div>
-                  <div className={`flex flex-col gap-1 max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-grey-500">{new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                      {msg.classification?.category && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-level2 text-grey-500 font-semibold">{msg.classification.category}</span>
-                      )}
-                    </div>
-                    <div className={`px-3 py-2.5 rounded-lg text-[13px] leading-relaxed ${
-                      msg.role === 'user'
-                        ? 'bg-bg-level2 text-grey-800 rounded-tr-sm'
-                        : 'bg-bg-level1 border border-hairline text-grey-800 rounded-tl-sm'
-                    }`}>
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
-                    </div>
-                  </div>
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-center">
-                    <button onClick={() => deleteMessage(msg.id)} className="p-1.5 text-grey-500 hover:text-red-500 rounded-lg"><Trash2 size={14}/></button>
-                  </div>
-                </div>
-              ))}
+          {data && data.messages.length === 0 && (
+            <p className="text-center text-muted-foreground py-12">
+              {query
+                ? `"${query}"에 대한 결과가 없습니다`
+                : "아직 대화가 없습니다"}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {data && data.totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-6">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            {page} / {data.totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= data.totalPages}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MessageItem({
+  message,
+  onDelete,
+  onEdit,
+}: {
+  message: TelegramMessage & { category: Category | null };
+  onDelete: (id: string) => void;
+  onEdit: (id: string, content: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState(message.content);
+  const cls = message.classification as MessageClassification | null;
+
+  const save = () => {
+    if (editContent.trim() !== message.content) {
+      onEdit(message.id, editContent.trim());
+    }
+    setEditing(false);
+  };
+
+  return (
+    <Card
+      className={
+        message.role === "assistant"
+          ? "border-l-2 border-l-primary/50"
+          : ""
+      }
+    >
+      <CardHeader className="py-3 pb-1">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={message.role === "user" ? "default" : "secondary"}
+              className="text-[10px]"
+            >
+              {message.role === "user" ? "나" : "비서"}
+            </Badge>
+            {message.category && (
+              <Badge variant="outline" className="text-[10px]">
+                {(message.category as Category).name}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground mr-2">
+              {formatTime(message.created_at)}
+            </span>
+            {message.role === "user" && (
+              <>
+                <button
+                  onClick={() => {
+                    setEditContent(message.content);
+                    setEditing(!editing);
+                  }}
+                  className="text-muted-foreground hover:text-foreground p-1"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={() => onDelete(message.id)}
+                  className="text-muted-foreground hover:text-destructive p-1"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {cls?.title && (
+          <CardTitle className="text-xs mt-1">{cls.title}</CardTitle>
+        )}
+      </CardHeader>
+      <CardContent className="py-2">
+        {editing ? (
+          <div className="space-y-2">
+            <textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              className="w-full min-h-[60px] bg-muted rounded-md px-3 py-2 text-sm outline-none resize-y"
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditing(false)}
+              >
+                <X className="w-3 h-3 mr-1" />
+                취소
+              </Button>
+              <Button size="sm" onClick={save}>
+                <Save className="w-3 h-3 mr-1" />
+                저장
+              </Button>
             </div>
           </div>
-        ))}
-      </div>
-
-      {/* Load More */}
-      <div className="flex justify-center pt-2">
-        <button onClick={() => setPage(p => p + 1)} className="px-5 py-2 rounded-lg border border-hairline bg-bg-level1 text-[13px] font-semibold text-grey-600 hover:bg-bg-level2 transition-colors">Load More</button>
-      </div>
-    </div>
+        ) : (
+          <p className="text-sm whitespace-pre-wrap line-clamp-4">
+            {message.content}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
