@@ -1,288 +1,159 @@
 "use client";
-
-import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  CheckSquare,
-  Clock,
-  MessageSquare,
-  ArrowRight,
-  Circle,
-  CheckCircle,
-} from "lucide-react";
-import { TimeGrid } from "@/components/TimeGrid";
-import { DailyPlanEditor } from "@/components/DailyPlanEditor";
-import type { Todo, HourlySummary, TelegramMessage, Category } from "@/types";
+import { Zap, Clock, MessageSquare, CheckCircle2, Play, Circle } from "lucide-react";
 
-const priorityLabels: Record<number, { label: string; color: string }> = {
-  0: { label: "보통", color: "secondary" },
-  1: { label: "중요", color: "default" },
-  2: { label: "긴급", color: "destructive" },
-  3: { label: "매우긴급", color: "destructive" },
-};
+interface Todo { id: string; title: string; priority: number; is_done: boolean; }
+interface TelegramMessage { id: string; role: string; content: string; created_at: string; }
 
-function getToday() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-export default function DashboardPage() {
-  const [todos, setTodos] = useState<(Todo & { category?: Category })[]>([]);
-  const [summaries, setSummaries] = useState<HourlySummary[]>([]);
-  const [recentMessages, setRecentMessages] = useState<TelegramMessage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const today = getToday();
-
-  const fetchDashboardData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [todosRes, timeRes, historyRes] = await Promise.all([
-        apiFetch("/api/todos"),
-        apiFetch(`/api/time?date=${today}`),
-        apiFetch("/api/history?page=1"),
-      ]);
-
-      const [todosData, timeData, historyData] = await Promise.all([
-        todosRes.json(),
-        timeRes.json(),
-        historyRes.json(),
-      ]);
-
-      setTodos(todosData.todos || []);
-      setSummaries(timeData.summaries || []);
-      setRecentMessages((historyData.messages || []).slice(0, 6));
-    } finally {
-      setLoading(false);
-    }
-  }, [today]);
+export default function Dashboard() {
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [history, setHistory] = useState<TelegramMessage[]>([]);
+  const [dailyPlanText, setDailyPlanText] = useState("");
+  const [pcActiveMinutes, setPcActiveMinutes] = useState(0);
 
   useEffect(() => {
     fetchDashboardData();
-  }, [fetchDashboardData]);
+  }, []);
 
-  const toggleTodo = async (id: string, isDone: boolean) => {
-    await apiFetch("/api/todos", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, is_done: !isDone }),
-    });
-    fetchDashboardData();
+  const fetchDashboardData = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const [todosRes, historyRes, timeRes, planRes] = await Promise.all([
+        apiFetch("/api/todos?status=pending"),
+        apiFetch("/api/history?limit=5"),
+        apiFetch(`/api/time?date=${today}`),
+        apiFetch(`/api/daily-plan?date=${today}`)
+      ]);
+      if (todosRes.ok) setTodos((await todosRes.json()).todos || []);
+      if (historyRes.ok) setHistory((await historyRes.json()).messages || []);
+      if (timeRes.ok) {
+        const timeData = await timeRes.json();
+        const totalMin = (timeData.summaries || []).reduce((acc: number, h: any) => {
+          return acc + (h.top_apps || []).reduce((a2: number, app: any) => a2 + app.minutes, 0);
+        }, 0);
+        setPcActiveMinutes(totalMin);
+      }
+      if (planRes.ok) {
+        const planData = await planRes.json();
+        setDailyPlanText(planData.planText || "");
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const activeTodos = todos.filter((t) => !t.is_done);
-  const doneTodosCount = todos.filter((t) => t.is_done).length;
-
-  // Stats
-  const activeHours = summaries.filter(
-    (s) => s.top_apps && s.top_apps.length > 0
-  ).length;
-  const totalMinutes = summaries.reduce((acc, s) => {
-    return (
-      acc + (s.top_apps || []).reduce((a, app) => a + (app.minutes || 0), 0)
-    );
-  }, 0);
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-3 gap-4">
-          <Skeleton className="h-24" />
-          <Skeleton className="h-24" />
-          <Skeleton className="h-24" />
-        </div>
-        <Skeleton className="h-64" />
-      </div>
-    );
-  }
+  const saveDailyPlan = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    await apiFetch("/api/daily-plan", {
+      method: "POST",
+      body: JSON.stringify({ date: today, content: dailyPlanText })
+    });
+    alert("Saved!");
+  };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">대시보드</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          {new Date().toLocaleDateString("ko-KR", {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-            weekday: "long",
-          })}
-        </p>
-      </div>
-
-      {/* Quick Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-3">
-              <CheckSquare className="w-5 h-5 text-primary" />
-              <div>
-                <p className="text-2xl font-bold">{activeTodos.length}</p>
-                <p className="text-xs text-muted-foreground">
-                  진행중 / {doneTodosCount}완료
-                </p>
-              </div>
+    <div className="max-w-5xl mx-auto space-y-6">
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="relative overflow-hidden rounded-[24px] p-6 border border-primary-neon/20 bg-primary-neon/5 neon-border-blue md:col-span-1">
+          <div className="absolute -right-8 -top-8 size-32 bg-primary-neon/10 rounded-full blur-3xl"></div>
+          <div className="flex flex-col gap-1 relative z-10">
+            <div className="flex items-center gap-2 text-primary-neon">
+              <Zap size={16} />
+              <span className="text-[11px] font-bold uppercase tracking-wider">Pending Tasks</span>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-3">
-              <Clock className="w-5 h-5 text-primary" />
-              <div>
-                <p className="text-2xl font-bold">{activeHours}h</p>
-                <p className="text-xs text-muted-foreground">
-                  활동 시간 / {Math.round(totalMinutes)}분
-                </p>
-              </div>
+            <div className="flex items-baseline gap-2 mt-2">
+              <span className="text-4xl font-extrabold tracking-tight">{todos.length}</span>
+              <span className="text-xs text-primary-neon font-medium">Items</span>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-3">
-              <MessageSquare className="w-5 h-5 text-primary" />
-              <div>
-                <p className="text-2xl font-bold">{recentMessages.length}</p>
-                <p className="text-xs text-muted-foreground">최근 대화</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Daily Plan */}
-      <DailyPlanEditor date={today} />
-
-      {/* Two column layout */}
-      <div className="grid grid-cols-2 gap-6">
-        {/* Today's Todos */}
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm">오늘 할일</CardTitle>
-              <Link
-                href="/todos"
-                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-              >
-                전체 보기
-                <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {activeTodos.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                모든 할일을 완료했습니다
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {activeTodos.slice(0, 8).map((todo) => {
-                  const p = priorityLabels[todo.priority] || priorityLabels[0];
-                  return (
-                    <div
-                      key={todo.id}
-                      className="flex items-center gap-2 group"
-                    >
-                      <button
-                        onClick={() => toggleTodo(todo.id, todo.is_done)}
-                        className="text-muted-foreground hover:text-foreground shrink-0"
-                      >
-                        {todo.is_done ? (
-                          <CheckCircle className="w-4 h-4 text-primary" />
-                        ) : (
-                          <Circle className="w-4 h-4" />
-                        )}
-                      </button>
-                      <span className="text-sm truncate flex-1">
-                        {todo.title}
-                      </span>
-                      {todo.priority > 0 && (
-                        <Badge
-                          variant={
-                            p.color as "default" | "secondary" | "destructive"
-                          }
-                          className="text-[10px] shrink-0"
-                        >
-                          P{todo.priority}
-                        </Badge>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Recent Messages */}
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm">최근 대화</CardTitle>
-              <Link
-                href="/history"
-                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-              >
-                전체 보기
-                <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {recentMessages.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                아직 대화가 없습니다
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {recentMessages.map((msg) => (
-                  <div key={msg.id} className="flex items-start gap-2">
-                    <Badge
-                      variant={msg.role === "user" ? "default" : "secondary"}
-                      className="text-[10px] shrink-0 mt-0.5"
-                    >
-                      {msg.role === "user" ? "나" : "비서"}
-                    </Badge>
-                    <p className="text-xs text-muted-foreground line-clamp-1 flex-1">
-                      {msg.content}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Mini Time Grid */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm">오늘 시간 추적</CardTitle>
-            <Link
-              href="/time"
-              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-            >
-              상세 보기
-              <ArrowRight className="w-3 h-3" />
-            </Link>
           </div>
-        </CardHeader>
-        <CardContent>
-          <TimeGrid summaries={summaries} />
-        </CardContent>
-      </Card>
+        </div>
+        <div className="rounded-[24px] p-5 border border-zinc-800 bg-zinc-900/40 glass-effect flex flex-col justify-center">
+          <div className="flex items-center gap-2 text-accent-purple mb-2">
+            <Clock size={16} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">PC Time Today</span>
+          </div>
+          <span className="text-3xl font-bold tracking-tight">{Math.floor(pcActiveMinutes/60)}h {pcActiveMinutes%60}m</span>
+        </div>
+        <div className="rounded-[24px] p-5 border border-zinc-800 bg-zinc-900/40 glass-effect flex flex-col justify-center">
+          <div className="flex items-center gap-2 text-blue-400 mb-2">
+            <MessageSquare size={16} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Recent Chats</span>
+          </div>
+          <span className="text-3xl font-bold tracking-tight">{history.length}</span>
+        </div>
+      </section>
+
+      <section className="rounded-[24px] p-6 border border-zinc-800 bg-zinc-900/40 glass-effect">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold tracking-tight flex items-center gap-2"><Clock size={18} className="text-primary-neon"/> Daily Plan</h2>
+          <div className="flex gap-2">
+            <button className="px-3 py-1.5 rounded-lg bg-zinc-800 text-xs font-semibold text-zinc-300 hover:bg-zinc-700 transition">AI Generate</button>
+            <button onClick={saveDailyPlan} className="px-3 py-1.5 rounded-lg bg-primary-neon text-dark-bg text-xs font-bold hover:bg-cyan-400 transition">Save</button>
+          </div>
+        </div>
+        <textarea
+          value={dailyPlanText}
+          onChange={(e) => setDailyPlanText(e.target.value)}
+          placeholder="09:00 - 10:00 Morning Check&#10;10:00 - 12:00 Deep Work"
+          className="w-full bg-dark-bg border border-zinc-800 rounded-xl p-4 text-sm focus:border-primary-neon outline-none min-h-[120px] resize-y text-slate-300 font-mono"
+        />
+      </section>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <section className="rounded-[24px] p-6 border border-zinc-800 bg-zinc-900/40 glass-effect">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold tracking-tight flex items-center gap-2"><CheckCircle2 size={18} className="text-accent-purple"/> Top Tasks</h2>
+            <a href="/todos" className="text-xs text-zinc-400 hover:text-white">View All</a>
+          </div>
+          <div className="space-y-3">
+            {todos.slice(0, 5).map(todo => (
+              <div key={todo.id} className="group relative flex items-start gap-3 p-3 rounded-2xl bg-zinc-900/50 border border-zinc-800/50 hover:border-zinc-700 transition-all">
+                <Circle size={18} className="text-zinc-500 mt-0.5" />
+                <div className="flex-1 flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ${todo.priority === 0 ? 'bg-red-500/10 text-red-500' : 'bg-zinc-800 text-zinc-400'}`}>P{todo.priority}</span>
+                  </div>
+                  <p className="text-sm font-medium text-slate-200">{todo.title}</p>
+                </div>
+              </div>
+            ))}
+            {todos.length === 0 && <p className="text-sm text-zinc-500 text-center py-4">No pending tasks</p>}
+          </div>
+        </section>
+
+        <section className="rounded-[24px] p-6 border border-zinc-800 bg-zinc-900/40 glass-effect">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold tracking-tight flex items-center gap-2"><MessageSquare size={18} className="text-blue-400"/> Recent Chat</h2>
+            <a href="/history" className="text-xs text-zinc-400 hover:text-white">View All</a>
+          </div>
+          <div className="space-y-4">
+            {history.map(msg => (
+              <div key={msg.id} className={`flex gap-3 text-sm ${msg.role === 'assistant' ? '' : 'flex-row-reverse'}`}>
+                <div className={`size-8 rounded-full flex items-center justify-center shrink-0 ${msg.role === 'assistant' ? 'bg-gradient-to-br from-primary-neon to-accent-purple text-dark-bg font-bold text-xs' : 'bg-zinc-800 text-slate-300 font-bold text-xs'}`}>
+                  {msg.role === 'assistant' ? 'AI' : 'ME'}
+                </div>
+                <div className={`p-3 rounded-2xl max-w-[80%] ${msg.role === 'assistant' ? 'bg-zinc-900 border border-zinc-800 rounded-tl-none' : 'bg-primary-neon/10 border border-primary-neon/20 rounded-tr-none text-primary-neon'}`}>
+                  <p className="line-clamp-2 leading-relaxed">{msg.content}</p>
+                </div>
+              </div>
+            ))}
+            {history.length === 0 && <p className="text-sm text-zinc-500 text-center py-4">No recent history</p>}
+          </div>
+        </section>
+      </div>
+
+      <section className="rounded-[24px] p-6 border border-zinc-800 bg-zinc-900/40 glass-effect overflow-x-auto">
+        <h2 className="text-lg font-bold tracking-tight mb-4 flex items-center gap-2"><Play size={18} className="text-primary-neon"/> Activity Heatmap</h2>
+        <div className="flex gap-1 min-w-[600px]">
+          {Array.from({length: 24}).map((_, i) => (
+            <div key={i} className="flex-1 flex flex-col gap-1 items-center">
+              <div className="w-full h-8 rounded bg-zinc-800 hover:bg-primary-neon/40 transition-colors" title={`${i}:00`} />
+              <span className="text-[10px] text-zinc-600">{i}</span>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

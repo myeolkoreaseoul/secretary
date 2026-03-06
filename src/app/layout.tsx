@@ -1,100 +1,111 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+"use client";
+import "./globals.css";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
-  Home,
-  LayoutGrid,
+  LayoutDashboard,
   MessageSquare,
   CheckSquare,
   Clock,
-  Newspaper,
   Youtube,
   Settings,
-  Command,
+  Search,
+  Timer
 } from "lucide-react";
-import { ClientProviders, TimerWidget } from "@/components/ClientProviders";
-import "./globals.css";
+import { useEffect, useState } from "react";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-sans" });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-export const metadata: Metadata = {
-  title: "Secretary - AI 비서 대시보드",
-  description: "텔레그램 기반 AI 비서 관리 시스템",
-};
-
-const navItems = [
-  { href: "/", label: "대시보드", icon: Home },
-  { href: "/categories", label: "카테고리", icon: LayoutGrid },
-  { href: "/history", label: "대화", icon: MessageSquare },
-  { href: "/todos", label: "할일", icon: CheckSquare },
-  { href: "/time", label: "시간", icon: Clock },
-  { href: "/digest", label: "다이제스트", icon: Newspaper },
-  { href: "/yt", label: "유튜브", icon: Youtube },
-  { href: "/settings", label: "설정", icon: Settings },
+const NAV_ITEMS = [
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/todos", label: "Tasks", icon: CheckSquare },
+  { href: "/time", label: "Time", icon: Clock },
+  { href: "/history", label: "History", icon: MessageSquare },
+  { href: "/yt", label: "YouTube", icon: Youtube },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const [timerActive, setTimerActive] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(25 * 60);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (timerActive && timeLeft > 0) {
+      interval = setInterval(() => setTimeLeft((t) => t - 1), 1000);
+    } else if (timeLeft === 0) {
+      setTimerActive(false);
+    }
+    return () => clearInterval(interval);
+  }, [timerActive, timeLeft]);
+
+  const toggleTimer = () => setTimerActive(!timerActive);
+  const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+
   return (
     <html lang="ko" className="dark">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <div className="min-h-screen flex">
-          {/* Sidebar */}
-          <aside className="w-56 border-r border-sidebar-border bg-sidebar flex flex-col shrink-0">
-            <div className="p-4 border-b border-sidebar-border">
-              <Link href="/" className="text-lg font-bold text-sidebar-foreground">
-                Secretary
-              </Link>
-              <p className="text-xs text-muted-foreground mt-0.5">AI 비서 대시보드</p>
+      <body className={`${jakarta.variable} antialiased bg-dark-bg text-slate-100 flex h-screen overflow-hidden`}>
+        {/* Desktop Sidebar */}
+        <aside className="hidden md:flex w-64 flex-col border-r border-border-color bg-dark-bg/80 backdrop-blur-xl shrink-0">
+          <div className="p-6 flex items-center gap-3">
+            <div className="size-8 rounded-lg bg-gradient-to-br from-primary-neon to-accent-purple flex items-center justify-center shadow-lg shadow-primary-neon/20">
+              <span className="font-bold text-white text-sm">S</span>
             </div>
-            <nav className="flex-1 p-2 space-y-1">
-              {navItems.map(({ href, label, icon: Icon }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-                >
-                  <Icon className="w-4 h-4" />
-                  {label}
+            <span className="font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-primary-neon to-accent-purple">SECRETARY</span>
+          </div>
+          <nav className="flex-1 px-4 space-y-2">
+            {NAV_ITEMS.map((item) => {
+              const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+              const Icon = item.icon;
+              return (
+                <Link key={item.href} href={item.href} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${active ? 'bg-zinc-900 border border-zinc-800 text-primary-neon' : 'text-zinc-400 hover:text-slate-200 hover:bg-zinc-900/50'}`}>
+                  <Icon size={18} />
+                  <span className="text-sm font-semibold tracking-wide">{item.label}</span>
                 </Link>
-              ))}
-            </nav>
-            <div className="p-3 border-t border-sidebar-border space-y-2">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Command className="w-3 h-3" />
-                <span>Ctrl+K 명령 팔레트</span>
-              </div>
-              <p className="text-xs text-muted-foreground">v2.1 &middot; Web + Telegram + Claude</p>
+              );
+            })}
+          </nav>
+          <div className="p-4 mt-auto border-t border-border-color">
+            <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-900/50 border border-zinc-800/50 text-zinc-400 text-xs">
+              <span className="flex items-center gap-2"><Search size={14} /> Search</span>
+              <kbd className="font-mono bg-zinc-800 px-1.5 py-0.5 rounded text-[10px]">Ctrl+K</kbd>
             </div>
-          </aside>
+          </div>
+        </aside>
+
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Topbar */}
+          <header className="h-16 border-b border-border-color flex items-center justify-between px-6 bg-dark-bg/80 backdrop-blur-xl shrink-0">
+            <div className="md:hidden font-bold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-primary-neon to-accent-purple">SECRETARY</div>
+            <div className="hidden md:block text-lg font-bold">{NAV_ITEMS.find(n => pathname === n.href || (n.href !== "/" && pathname.startsWith(n.href)))?.label || "Dashboard"}</div>
+            
+            <button onClick={toggleTimer} className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-semibold transition-all ${timerActive ? 'border-primary-neon text-primary-neon bg-primary-neon/10 neon-border-blue' : 'border-zinc-800 text-zinc-400 bg-zinc-900 hover:text-slate-200'}`}>
+              <Timer size={16} />
+              <span className="font-mono w-12 text-center">{formatTime(timeLeft)}</span>
+            </button>
+          </header>
 
           {/* Main Content */}
-          <main className="flex-1 overflow-auto">
-            {/* Header bar with timer */}
-            <div className="border-b border-border px-6 py-2 flex items-center justify-end">
-              <TimerWidget />
-            </div>
-            <div className="max-w-6xl mx-auto px-6 py-6">
-              {children}
-            </div>
+          <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6">
+            {children}
           </main>
         </div>
 
-        {/* Client-side overlays: Command Palette + Chat Sidebar */}
-        <ClientProviders />
+        {/* Mobile Tabbar */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-dark-bg/90 backdrop-blur-2xl border-t border-border-color px-6 pt-3 pb-8 flex justify-between items-center z-50">
+          {NAV_ITEMS.slice(0, 5).map((item) => {
+            const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href} className={`flex flex-col items-center gap-1 ${active ? 'text-primary-neon' : 'text-zinc-500'}`}>
+                <Icon size={active ? 24 : 20} className="transition-all" />
+                <span className="text-[10px] font-bold tracking-tighter uppercase">{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
       </body>
     </html>
   );

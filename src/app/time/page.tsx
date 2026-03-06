@@ -1,181 +1,114 @@
 "use client";
-
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
-import { Input } from "@/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Trash2 } from "lucide-react";
-import { TimeGrid } from "@/components/TimeGrid";
-import { ManualTimeForm } from "@/components/ManualTimeForm";
-import { DailyPlanEditor } from "@/components/DailyPlanEditor";
-import type { HourlySummary, ActivityLog, DailyReportV2 } from "@/types";
-
-interface TimeData {
-  date: string;
-  summaries: HourlySummary[];
-  logs: ActivityLog[];
-  report: DailyReportV2 | null;
-}
+import { Activity, Calendar as CalendarIcon, Clock, Target, CheckCircle2 } from "lucide-react";
 
 export default function TimePage() {
-  const [date, setDate] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  });
-  const [data, setData] = useState<TimeData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedHour, setSelectedHour] = useState<number | null>(null);
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch(`/api/time?date=${date}`);
-      const json = await res.json();
-      setData(json);
-    } finally {
-      setLoading(false);
-    }
-  }, [date]);
+  const [activeTab, setActiveTab] = useState('log');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [timeLogs, setTimeLogs] = useState<any[]>([]);
+  const [plan, setPlan] = useState("");
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchTimeData();
+  }, [date]);
 
-  const handleHourClick = (hour: number) => {
-    setSelectedHour(hour);
-    document
-      .getElementById("manual-time-form")
-      ?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  const deleteLog = async (id: string) => {
-    await apiFetch(`/api/time?id=${id}`, { method: "DELETE" });
-    fetchData();
+  const fetchTimeData = async () => {
+    const [logRes, planRes] = await Promise.all([
+      apiFetch(`/api/time?date=${date}`),
+      apiFetch(`/api/daily-plan?date=${date}`)
+    ]);
+    if(logRes.ok) setTimeLogs((await logRes.json()).summaries || []);
+    if(planRes.ok) setPlan((await planRes.json()).planText || "");
   };
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">시간 추적</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            하루 활동을 시간대별로 확인하고 수동으로 기록합니다
-          </p>
+    <div className="max-w-5xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-extrabold tracking-tight">Time Management</h1>
+        <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5">
+          <CalendarIcon size={16} className="text-zinc-400" />
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent text-sm text-slate-200 outline-none" />
         </div>
-        <Input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="w-auto"
-        />
       </div>
 
-      {loading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-64 w-full" />
-          <Skeleton className="h-32 w-full" />
-        </div>
-      ) : data ? (
-        <div className="space-y-6">
-          {/* Time Grid */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">24시간 그리드</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <TimeGrid
-                summaries={data.summaries}
-                onHourClick={handleHourClick}
-              />
-            </CardContent>
-          </Card>
+      <div className="flex gap-2 p-1 bg-zinc-900/50 border border-zinc-800/50 rounded-2xl w-fit">
+        {[
+          { id: 'log', label: 'Time Logs', icon: Clock },
+          { id: 'plan', label: 'Plan vs Actual', icon: Target },
+          { id: 'weekly', label: 'Weekly Trend', icon: Activity },
+        ].map(tab => (
+          <button 
+            key={tab.id} onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            <tab.icon size={16} />
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-          {/* Daily Plan */}
-          <DailyPlanEditor date={date} />
-
-          {/* Manual Time Form */}
-          <div id="manual-time-form">
-            <ManualTimeForm
-              key={selectedHour}
-              initialHour={selectedHour}
-              date={date}
-              onSaved={() => {
-                setSelectedHour(null);
-                fetchData();
-              }}
-            />
-          </div>
-
-          {/* Daily Report */}
-          {data.report?.content && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Daily Report</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm whitespace-pre-wrap">
-                  {data.report.content}
-                </p>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Raw Logs */}
-          {data.logs.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">
-                  활동 로그 ({data.logs.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="max-h-64 overflow-y-auto space-y-1">
-                  {data.logs.slice(0, 100).map((log) => (
-                    <div
-                      key={log.id}
-                      className="flex items-center gap-3 text-xs py-1 group"
-                    >
-                      <span className="text-muted-foreground w-12 shrink-0">
-                        {new Date(log.recorded_at).toLocaleTimeString(
-                          "ko-KR",
-                          {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }
-                        )}
-                      </span>
-                      <span className="text-muted-foreground w-20 shrink-0 truncate">
-                        {log.app_name || "-"}
-                      </span>
-                      <span className="truncate flex-1">
-                        {log.window_title}
-                      </span>
-                      <button
-                        onClick={() => deleteLog(log.id)}
-                        className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+      {activeTab === 'log' && (
+        <div className="rounded-[24px] p-6 border border-zinc-800 bg-zinc-900/40 glass-effect">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div>
+              <h3 className="text-sm font-bold text-zinc-400 mb-4 uppercase tracking-wider">Hourly Breakdown</h3>
+              <div className="space-y-2">
+                {Array.from({length: 24}).map((_, i) => {
+                  const log = timeLogs.find(l => l.hour === i);
+                  return (
+                    <div key={i} className="flex gap-4 items-stretch group">
+                      <div className="w-12 text-xs font-mono text-zinc-500 text-right py-2">{i}:00</div>
+                      <div className="flex-1 min-h-[40px] bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-2 group-hover:border-zinc-700 transition-colors relative">
+                        {log && log.top_apps.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {log.top_apps.map((app: any, idx: number) => (
+                              <span key={idx} className="text-xs px-2 py-1 rounded bg-zinc-800 text-slate-300">
+                                {app.app} <span className="text-zinc-500">({app.minutes}m)</span>
+                              </span>
+                            ))}
+                          </div>
+                        ) : <div className="absolute inset-0 flex items-center px-4 text-xs text-zinc-600 font-mono">No data</div>}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {data.summaries.length === 0 && data.logs.length === 0 && (
-            <p className="text-center text-muted-foreground py-12">
-              이 날짜에 기록된 활동이 없습니다
-            </p>
-          )}
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+               <h3 className="text-sm font-bold text-zinc-400 mb-4 uppercase tracking-wider">Manual Entry</h3>
+               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-4">
+                 <div className="flex gap-4">
+                    <input type="time" className="bg-dark-bg border border-zinc-800 rounded-lg px-3 py-2 text-sm outline-none w-32" />
+                    <input type="time" className="bg-dark-bg border border-zinc-800 rounded-lg px-3 py-2 text-sm outline-none w-32" />
+                 </div>
+                 <input placeholder="What did you do?" className="w-full bg-dark-bg border border-zinc-800 rounded-lg px-3 py-2 text-sm outline-none" />
+                 <select className="w-full bg-dark-bg border border-zinc-800 rounded-lg px-3 py-2 text-sm outline-none text-zinc-400">
+                    <option>Select Category</option>
+                    <option>Deep Work</option>
+                    <option>Meeting</option>
+                    <option>Break</option>
+                 </select>
+                 <button className="w-full py-2 bg-primary-neon text-dark-bg font-bold rounded-lg hover:bg-cyan-400">Add Log</button>
+               </div>
+            </div>
+          </div>
         </div>
-      ) : null}
+      )}
+
+      {activeTab === 'plan' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="rounded-[24px] p-6 border border-zinc-800 bg-zinc-900/40 glass-effect">
+            <h3 className="text-sm font-bold text-accent-purple mb-4 uppercase tracking-wider flex items-center gap-2"><Target size={16}/> Planned</h3>
+            <pre className="text-sm text-slate-300 font-mono whitespace-pre-wrap">{plan || "No plan for this day."}</pre>
+          </div>
+          <div className="rounded-[24px] p-6 border border-zinc-800 bg-zinc-900/40 glass-effect">
+            <h3 className="text-sm font-bold text-primary-neon mb-4 uppercase tracking-wider flex items-center gap-2"><CheckCircle2 size={16}/> Actual Analysis (AI)</h3>
+            <p className="text-sm text-zinc-400 italic">Click generate to analyze today's performance...</p>
+            <button className="mt-4 px-4 py-2 rounded-xl bg-zinc-800 text-sm font-bold hover:bg-zinc-700">Run Analysis</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
