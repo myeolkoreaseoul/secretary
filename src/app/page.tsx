@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
-import { Zap, Clock, MessageSquare, CheckCircle2, Play, Circle } from "lucide-react";
+import { CheckCircle2, Clock, MessageSquare, Circle } from "lucide-react";
 
 interface Todo { id: string; title: string; priority: number; is_done: boolean; }
 interface TelegramMessage { id: string; role: string; content: string; created_at: string; }
@@ -47,109 +47,139 @@ export default function Dashboard() {
     const today = new Date().toISOString().split('T')[0];
     await apiFetch("/api/daily-plan", {
       method: "POST",
-      body: JSON.stringify({ date: today, content: dailyPlanText })
+      body: JSON.stringify({ date: today, planText: dailyPlanText })
     });
     alert("Saved!");
   };
 
+  const doneCount = todos.filter(t => t.is_done).length;
+  const totalCount = todos.length;
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="relative overflow-hidden rounded-[24px] p-6 border border-primary-neon/20 bg-primary-neon/5 neon-border-blue md:col-span-1">
-          <div className="absolute -right-8 -top-8 size-32 bg-primary-neon/10 rounded-full blur-3xl"></div>
-          <div className="flex flex-col gap-1 relative z-10">
-            <div className="flex items-center gap-2 text-primary-neon">
-              <Zap size={16} />
-              <span className="text-[11px] font-bold uppercase tracking-wider">Pending Tasks</span>
-            </div>
-            <div className="flex items-baseline gap-2 mt-2">
-              <span className="text-4xl font-extrabold tracking-tight">{todos.length}</span>
-              <span className="text-xs text-primary-neon font-medium">Items</span>
-            </div>
+    <div className="max-w-[800px] mx-auto space-y-5">
+      {/* Summary Cards */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {/* Pending Tasks */}
+        <div className="rounded-lg p-4 bg-bg-level1 border border-hairline">
+          <div className="flex items-center gap-2 text-grey-600 mb-2">
+            <CheckCircle2 size={14} />
+            <span className="text-[12px] font-semibold">Pending Tasks</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[36px] font-bold text-grey-900 leading-none">{todos.length}</span>
+            <span className="text-[12px] text-grey-500 font-medium">items</span>
           </div>
         </div>
-        <div className="rounded-[24px] p-5 border border-zinc-800 bg-zinc-900/40 glass-effect flex flex-col justify-center">
-          <div className="flex items-center gap-2 text-accent-purple mb-2">
-            <Clock size={16} />
-            <span className="text-[10px] font-bold uppercase tracking-wider">PC Time Today</span>
+
+        {/* PC Time */}
+        <div className="rounded-lg p-4 bg-bg-level1 border border-hairline">
+          <div className="flex items-center gap-2 text-grey-600 mb-2">
+            <Clock size={14} />
+            <span className="text-[12px] font-semibold">PC Time Today</span>
           </div>
-          <span className="text-3xl font-bold tracking-tight">{Math.floor(pcActiveMinutes/60)}h {pcActiveMinutes%60}m</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[36px] font-bold text-grey-900 leading-none">{Math.floor(pcActiveMinutes/60)}h {pcActiveMinutes%60}m</span>
+          </div>
         </div>
-        <div className="rounded-[24px] p-5 border border-zinc-800 bg-zinc-900/40 glass-effect flex flex-col justify-center">
-          <div className="flex items-center gap-2 text-blue-400 mb-2">
-            <MessageSquare size={16} />
-            <span className="text-[10px] font-bold uppercase tracking-wider">Recent Chats</span>
+
+        {/* Recent Chats */}
+        <div className="rounded-lg p-4 bg-bg-level1 border border-hairline">
+          <div className="flex items-center gap-2 text-grey-600 mb-2">
+            <MessageSquare size={14} />
+            <span className="text-[12px] font-semibold">Recent Chats</span>
           </div>
-          <span className="text-3xl font-bold tracking-tight">{history.length}</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[36px] font-bold text-grey-900 leading-none">{history.length}</span>
+            <span className="text-[12px] text-grey-500 font-medium">messages</span>
+          </div>
         </div>
       </section>
 
-      <section className="rounded-[24px] p-6 border border-zinc-800 bg-zinc-900/40 glass-effect">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold tracking-tight flex items-center gap-2"><Clock size={18} className="text-primary-neon"/> Daily Plan</h2>
+      {/* Daily Plan */}
+      <section className="rounded-lg p-4 bg-bg-level1 border border-hairline">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-[15px] font-semibold text-grey-900 flex items-center gap-2">
+            <Clock size={16} className="text-blue-500" /> Daily Plan
+          </h2>
           <div className="flex gap-2">
-            <button className="px-3 py-1.5 rounded-lg bg-zinc-800 text-xs font-semibold text-zinc-300 hover:bg-zinc-700 transition">AI Generate</button>
-            <button onClick={saveDailyPlan} className="px-3 py-1.5 rounded-lg bg-primary-neon text-dark-bg text-xs font-bold hover:bg-cyan-400 transition">Save</button>
+            <button className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-grey-600 bg-bg-level2 hover:bg-bg-level3 transition-colors">
+              AI Generate
+            </button>
+            <button onClick={saveDailyPlan} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-blue-500 hover:bg-blue-600 transition-colors">
+              Save
+            </button>
           </div>
         </div>
         <textarea
           value={dailyPlanText}
           onChange={(e) => setDailyPlanText(e.target.value)}
           placeholder="09:00 - 10:00 Morning Check&#10;10:00 - 12:00 Deep Work"
-          className="w-full bg-dark-bg border border-zinc-800 rounded-xl p-4 text-sm focus:border-primary-neon outline-none min-h-[120px] resize-y text-slate-300 font-mono"
+          className="w-full bg-bg-base border border-hairline rounded-lg p-3 text-[14px] text-grey-800 placeholder:text-grey-400 focus:outline-none focus:shadow-[0_0_0_2px_rgba(49,130,246,0.3)] min-h-[120px] resize-y font-mono"
         />
       </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <section className="rounded-[24px] p-6 border border-zinc-800 bg-zinc-900/40 glass-effect">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold tracking-tight flex items-center gap-2"><CheckCircle2 size={18} className="text-accent-purple"/> Top Tasks</h2>
-            <a href="/todos" className="text-xs text-zinc-400 hover:text-white">View All</a>
+      {/* Tasks + Chat Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Top Tasks */}
+        <section className="rounded-lg p-4 bg-bg-level1 border border-hairline">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[15px] font-semibold text-grey-900">Top Tasks</h2>
+            <a href="/todos" className="text-[12px] text-blue-500 font-semibold hover:text-blue-600">View All</a>
           </div>
-          <div className="space-y-3">
+          <div className="space-y-1">
             {todos.slice(0, 5).map(todo => (
-              <div key={todo.id} className="group relative flex items-start gap-3 p-3 rounded-2xl bg-zinc-900/50 border border-zinc-800/50 hover:border-zinc-700 transition-all">
-                <Circle size={18} className="text-zinc-500 mt-0.5" />
-                <div className="flex-1 flex flex-col gap-1">
-                  <div className="flex items-center justify-between">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ${todo.priority === 0 ? 'bg-red-500/10 text-red-500' : 'bg-zinc-800 text-zinc-400'}`}>P{todo.priority}</span>
-                  </div>
-                  <p className="text-sm font-medium text-slate-200">{todo.title}</p>
+              <div key={todo.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[rgba(217,217,255,0.11)] transition-colors">
+                <Circle size={16} className="text-grey-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[14px] text-grey-800 truncate">{todo.title}</p>
                 </div>
+                <span className={`text-[11px] px-1.5 py-0.5 rounded font-semibold ${
+                  todo.priority === 0 ? 'bg-red-500/10 text-red-500' : 'bg-bg-level2 text-grey-500'
+                }`}>
+                  P{todo.priority}
+                </span>
               </div>
             ))}
-            {todos.length === 0 && <p className="text-sm text-zinc-500 text-center py-4">No pending tasks</p>}
+            {todos.length === 0 && <p className="text-[14px] text-grey-500 text-center py-6">No pending tasks</p>}
           </div>
         </section>
 
-        <section className="rounded-[24px] p-6 border border-zinc-800 bg-zinc-900/40 glass-effect">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold tracking-tight flex items-center gap-2"><MessageSquare size={18} className="text-blue-400"/> Recent Chat</h2>
-            <a href="/history" className="text-xs text-zinc-400 hover:text-white">View All</a>
+        {/* Recent Chat */}
+        <section className="rounded-lg p-4 bg-bg-level1 border border-hairline">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[15px] font-semibold text-grey-900">Recent Chat</h2>
+            <a href="/history" className="text-[12px] text-blue-500 font-semibold hover:text-blue-600">View All</a>
           </div>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {history.map(msg => (
-              <div key={msg.id} className={`flex gap-3 text-sm ${msg.role === 'assistant' ? '' : 'flex-row-reverse'}`}>
-                <div className={`size-8 rounded-full flex items-center justify-center shrink-0 ${msg.role === 'assistant' ? 'bg-gradient-to-br from-primary-neon to-accent-purple text-dark-bg font-bold text-xs' : 'bg-zinc-800 text-slate-300 font-bold text-xs'}`}>
+              <div key={msg.id} className={`flex gap-2.5 ${msg.role === 'assistant' ? '' : 'flex-row-reverse'}`}>
+                <div className={`size-7 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold ${
+                  msg.role === 'assistant' ? 'bg-blue-500/10 text-blue-500' : 'bg-bg-level2 text-grey-600'
+                }`}>
                   {msg.role === 'assistant' ? 'AI' : 'ME'}
                 </div>
-                <div className={`p-3 rounded-2xl max-w-[80%] ${msg.role === 'assistant' ? 'bg-zinc-900 border border-zinc-800 rounded-tl-none' : 'bg-primary-neon/10 border border-primary-neon/20 rounded-tr-none text-primary-neon'}`}>
-                  <p className="line-clamp-2 leading-relaxed">{msg.content}</p>
+                <div className={`px-3 py-2 rounded-lg max-w-[80%] text-[13px] leading-relaxed ${
+                  msg.role === 'assistant'
+                    ? 'bg-bg-level2 text-grey-800 rounded-tl-sm'
+                    : 'bg-blue-500/10 text-blue-500 rounded-tr-sm'
+                }`}>
+                  <p className="line-clamp-2">{msg.content}</p>
                 </div>
               </div>
             ))}
-            {history.length === 0 && <p className="text-sm text-zinc-500 text-center py-4">No recent history</p>}
+            {history.length === 0 && <p className="text-[14px] text-grey-500 text-center py-6">No recent history</p>}
           </div>
         </section>
       </div>
 
-      <section className="rounded-[24px] p-6 border border-zinc-800 bg-zinc-900/40 glass-effect overflow-x-auto">
-        <h2 className="text-lg font-bold tracking-tight mb-4 flex items-center gap-2"><Play size={18} className="text-primary-neon"/> Activity Heatmap</h2>
+      {/* Activity Heatmap */}
+      <section className="rounded-lg p-4 bg-bg-level1 border border-hairline overflow-x-auto">
+        <h2 className="text-[15px] font-semibold text-grey-900 mb-3">Activity Heatmap</h2>
         <div className="flex gap-1 min-w-[600px]">
           {Array.from({length: 24}).map((_, i) => (
             <div key={i} className="flex-1 flex flex-col gap-1 items-center">
-              <div className="w-full h-8 rounded bg-zinc-800 hover:bg-primary-neon/40 transition-colors" title={`${i}:00`} />
-              <span className="text-[10px] text-zinc-600">{i}</span>
+              <div className="w-full h-7 rounded bg-bg-level2 hover:bg-blue-500/20 transition-colors" title={`${i}:00`} />
+              <span className="text-[10px] text-grey-500">{i}</span>
             </div>
           ))}
         </div>

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
-import { Search, Filter, Trash2, Calendar } from "lucide-react";
+import { Search, Trash2, Calendar } from "lucide-react";
 
 interface TelegramMessage { id: string; role: string; content: string; created_at: string; classification?: any; }
 
@@ -25,7 +25,6 @@ export default function HistoryPage() {
     fetchHistory();
   };
 
-  // Group by date
   const grouped = messages.reduce((acc, msg) => {
     const date = new Date(msg.created_at).toLocaleDateString();
     if(!acc[date]) acc[date] = [];
@@ -34,54 +33,54 @@ export default function HistoryPage() {
   }, {} as Record<string, TelegramMessage[]>);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold tracking-tight">History</h1>
+    <div className="max-w-[800px] mx-auto space-y-5">
+      <h1 className="text-[20px] font-bold text-grey-900">History</h1>
+
+      {/* Search */}
+      <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-bg-level1 border border-hairline focus-within:shadow-[0_0_0_2px_rgba(49,130,246,0.3)]">
+        <Search size={16} className="text-grey-500" />
+        <input
+          value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search conversations..."
+          className="flex-1 bg-transparent text-[14px] text-grey-800 placeholder:text-grey-400 outline-none"
+        />
       </div>
 
-      <div className="flex gap-3">
-        <div className="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50 focus-within:border-primary-neon">
-          <Search size={18} className="text-zinc-500" />
-          <input 
-            value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search conversations..." 
-            className="flex-1 bg-transparent text-sm outline-none"
-          />
-        </div>
-        <button className="px-4 py-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50 text-zinc-400 flex items-center gap-2 hover:text-white">
-          <Filter size={18} />
-          <span className="text-sm font-semibold">Filter</span>
-        </button>
-      </div>
-
-      <div className="space-y-8">
+      {/* Messages */}
+      <div className="space-y-6">
         {Object.entries(grouped).map(([date, msgs]) => (
-          <div key={date} className="space-y-4">
-            <div className="flex items-center gap-3 text-zinc-500 text-sm font-bold px-2">
-              <Calendar size={14} />
+          <div key={date} className="space-y-3">
+            <div className="flex items-center gap-2 text-grey-500 text-[12px] font-semibold px-1">
+              <Calendar size={12} />
               {date}
-              <div className="flex-1 h-px bg-zinc-800/50 ml-2" />
+              <div className="flex-1 h-px bg-hairline ml-2" />
             </div>
-            
-            <div className="space-y-4">
+
+            <div className="space-y-3">
               {msgs.map(msg => (
-                <div key={msg.id} className={`group flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                  <div className={`size-10 rounded-full flex items-center justify-center shrink-0 border ${msg.role === 'user' ? 'bg-zinc-900 border-zinc-700 text-slate-300' : 'bg-primary-neon/10 border-primary-neon/30 text-primary-neon neon-border-blue'}`}>
-                    <span className="text-xs font-bold">{msg.role === 'user' ? 'ME' : 'AI'}</span>
+                <div key={msg.id} className={`group flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                  <div className={`size-8 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold ${
+                    msg.role === 'user' ? 'bg-bg-level2 text-grey-600' : 'bg-blue-500/10 text-blue-500'
+                  }`}>
+                    {msg.role === 'user' ? 'ME' : 'AI'}
                   </div>
-                  <div className={`flex flex-col gap-1 max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div className={`flex flex-col gap-1 max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-zinc-500">{new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                      <span className="text-[10px] text-grey-500">{new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                       {msg.classification?.category && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 font-bold uppercase">{msg.classification.category}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-level2 text-grey-500 font-semibold">{msg.classification.category}</span>
                       )}
                     </div>
-                    <div className={`p-4 rounded-2xl text-sm leading-relaxed ${msg.role === 'user' ? 'bg-zinc-800/80 rounded-tr-none' : 'bg-zinc-900/50 border border-zinc-800/50 rounded-tl-none glass-effect'}`}>
+                    <div className={`px-3 py-2.5 rounded-lg text-[13px] leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-bg-level2 text-grey-800 rounded-tr-sm'
+                        : 'bg-bg-level1 border border-hairline text-grey-800 rounded-tl-sm'
+                    }`}>
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                     </div>
                   </div>
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-center gap-2">
-                    <button onClick={() => deleteMessage(msg.id)} className="p-2 text-zinc-600 hover:text-red-500"><Trash2 size={16}/></button>
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-center">
+                    <button onClick={() => deleteMessage(msg.id)} className="p-1.5 text-grey-500 hover:text-red-500 rounded-lg"><Trash2 size={14}/></button>
                   </div>
                 </div>
               ))}
@@ -89,9 +88,10 @@ export default function HistoryPage() {
           </div>
         ))}
       </div>
-      
-      <div className="flex justify-center pt-4">
-        <button onClick={() => setPage(p => p + 1)} className="px-6 py-2 rounded-full border border-zinc-800 bg-zinc-900 text-sm font-semibold hover:bg-zinc-800">Load More</button>
+
+      {/* Load More */}
+      <div className="flex justify-center pt-2">
+        <button onClick={() => setPage(p => p + 1)} className="px-5 py-2 rounded-lg border border-hairline bg-bg-level1 text-[13px] font-semibold text-grey-600 hover:bg-bg-level2 transition-colors">Load More</button>
       </div>
     </div>
   );
