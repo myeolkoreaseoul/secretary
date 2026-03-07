@@ -3,15 +3,15 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Users, Pencil, X } from "lucide-react";
-import type { WorkerSnapshot, Character, OfficeLayout, FurnitureType, Camera } from "./types";
+import type { WorkerSnapshot, OfficeLayout, FurnitureType, Camera } from "./types";
 import { loadLayout, saveLayout, resetLayout } from "./layout/layoutStorage";
-import { initCamera, setupHiDPI } from "./engine/camera";
+import { initCamera, setupHiDPI, screenToGrid } from "./engine/camera";
 import { createGameLoop } from "./engine/gameLoop";
 import { render } from "./engine/renderer";
 import { updateCharacter } from "./characters/characterState";
 import { syncCharacters } from "./characters/characterManager";
 import { EditorToolbar } from "./editor/EditorToolbar";
-import { useLayoutEditor } from "./editor/LayoutEditor";
+import { GRID_WIDTH, GRID_HEIGHT } from "./constants";
 
 interface PixelOfficeProps {
   projectId?: string;
@@ -24,40 +24,47 @@ export function PixelOffice({ projectId }: PixelOfficeProps) {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [selectedFurniture, setSelectedFurniture] = useState<FurnitureType | null>(null);
-  const [hoveredTile, setHoveredTile] = useState<{ x: number; y: number } | null>(null);
 
-  // Mutable refs for game loop access
+  // Mutable refs for game loop access (no React state to avoid re-renders)
   const layoutRef = useRef<OfficeLayout>(loadLayout());
-  const charactersRef = useRef<Character[]>([]);
+  const charactersRef = useRef<ReturnType<typeof syncCharacters>>([]);
   const cameraRef = useRef<Camera>({ scale: 1, offsetX: 0, offsetY: 0, dpr: 1 });
   const editingRef = useRef(false);
   const hoveredTileRef = useRef<{ x: number; y: number } | null>(null);
+  const selectedFurnitureRef = useRef<FurnitureType | null>(null);
 
   // Keep refs in sync
   editingRef.current = editing;
-  hoveredTileRef.current = hoveredTile;
+  selectedFurnitureRef.current = selectedFurniture;
 
   const [layout, setLayout] = useState<OfficeLayout>(layoutRef.current);
 
-  // Fetch worker data
+  // Fetch worker data with AbortController (fix #4)
   useEffect(() => {
+    const controller = new AbortController();
+    let interval: ReturnType<typeof setInterval>;
+
     async function load() {
       try {
         const url = projectId
           ? `/api/overseer/workers?project_id=${projectId}`
           : "/api/overseer/workers";
-        const resp = await fetch(url);
+        const resp = await fetch(url, { signal: controller.signal });
         const data = await resp.json();
         setWorkers(Array.isArray(data) ? data : []);
-      } catch {
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
         setWorkers([]);
       } finally {
         setLoading(false);
       }
     }
     load();
-    const interval = setInterval(load, 30000);
-    return () => clearInterval(interval);
+    interval = setInterval(load, 30000);
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+    };
   }, [projectId]);
 
   // Sync characters when workers change
@@ -94,9 +101,10 @@ export function PixelOffice({ projectId }: PixelOfficeProps) {
     const ro = new ResizeObserver(resize);
     ro.observe(container);
 
+    // Fix #5: render only when update ran (inside accumulator loop)
     const stopLoop = createGameLoop(
       (delta) => {
-        if (editingRef.current) return; // Pause characters during editing
+        if (editingRef.current) return;
         const chars = charactersRef.current;
         for (let i = chars.length - 1; i >= 0; i--) {
           const removed = updateCharacter(chars[i], delta);
@@ -127,7 +135,7 @@ export function PixelOffice({ projectId }: PixelOfficeProps) {
     };
   }, []);
 
-  // Editor handlers
+  // Editor handlers — use cameraRef.current at call time (fix #1)
   const handleLayoutChange = useCallback((newLayout: OfficeLayout) => {
     layoutRef.current = newLayout;
     setLayout(newLayout);
@@ -143,14 +151,63 @@ export function PixelOffice({ projectId }: PixelOfficeProps) {
     setLayout(def);
   }, []);
 
-  const { handleCanvasClick, handleCanvasMouseMove, handleCanvasMouseLeave } =
-    useLayoutEditor({
-      layout,
-      camera: cameraRef.current,
-      selectedFurniture,
-      onLayoutChange: handleLayoutChange,
-      onHover: setHoveredTile,
-    });
+  // Fix #1: Read cameraRef at event time, not at hook creation time
+  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const camera = cameraRef.current;
+    const currentLayout = layoutRef.current;
+    const furniture = selectedFurnitureRef.current;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const grid = screenToGrid(e.clientX - rect.left, e.clientY - rect.top, camera);
+
+    if (grid.x < 0 || grid.x >= GRID_WIDTH || grid.y < 0 || grid.y >= GRID_HEIGHT) return;
+
+    if (furniture) {
+      const defaults: Record<string, { width: number; height: number }> = {
+        desk: { width: 2, height: 1 }, chair: { width: 1, height: 1 },
+        monitor: { width: 1, height: 1 }, plant: { width: 1, height: 1 },
+        bookshelf: { width: 2, height: 1 }, water_cooler: { width: 1, height: 1 },
+      };
+      const d = defaults[furniture] || { width: 1, height: 1 };
+      // Fix #9: bounds check
+      if (grid.x + d.width > GRID_WIDTH || grid.y + d.height > GRID_HEIGHT) return;
+      handleLayoutChange({
+        ...currentLayout,
+        furniture: [...currentLayout.furniture, {
+          id: `f-${Date.now()}`,
+          type: furniture,
+          x: grid.x, y: grid.y,
+          width: d.width, height: d.height,
+        }],
+      });
+    } else {
+      const idx = currentLayout.furniture.findIndex(
+        (f) => grid.x >= f.x && grid.x < f.x + f.width && grid.y >= f.y && grid.y < f.y + f.height,
+      );
+      if (idx >= 0) {
+        const updated = [...currentLayout.furniture];
+        updated.splice(idx, 1);
+        handleLayoutChange({ ...currentLayout, furniture: updated });
+      }
+    }
+  }, [handleLayoutChange]);
+
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const camera = cameraRef.current;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const grid = screenToGrid(e.clientX - rect.left, e.clientY - rect.top, camera);
+    // Fix #7: only update if tile changed
+    const prev = hoveredTileRef.current;
+    if (prev && prev.x === grid.x && prev.y === grid.y) return;
+    if (grid.x >= 0 && grid.x < GRID_WIDTH && grid.y >= 0 && grid.y < GRID_HEIGHT) {
+      hoveredTileRef.current = grid;
+    } else {
+      hoveredTileRef.current = null;
+    }
+  }, []);
+
+  const handleCanvasMouseLeave = useCallback(() => {
+    hoveredTileRef.current = null;
+  }, []);
 
   const activeCount = workers.filter((w) => w.status === "active").length;
 
@@ -174,14 +231,14 @@ export function PixelOffice({ projectId }: PixelOfficeProps) {
               onClick={() => {
                 setEditing(!editing);
                 setSelectedFurniture(null);
-                setHoveredTile(null);
+                hoveredTileRef.current = null;
               }}
               className={`p-1 rounded transition-colors ${
                 editing
                   ? "bg-blue-600 text-white"
                   : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
               }`}
-              title={editing ? "편집 종료" : "레이아웃 편집"}
+              aria-label={editing ? "편집 종료" : "레이아웃 편집"}
             >
               {editing ? <X className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
             </button>
@@ -205,7 +262,7 @@ export function PixelOffice({ projectId }: PixelOfficeProps) {
           style={{ aspectRatio: "20 / 12" }}
         >
           {loading && (
-            <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground z-10">
+            <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground z-10" aria-live="polite">
               로딩 중...
             </div>
           )}

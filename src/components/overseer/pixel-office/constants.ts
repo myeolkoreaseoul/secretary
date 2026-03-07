@@ -7,7 +7,7 @@ export const SPRITE_SIZE = 16;
 export const MAX_DELTA = 66; // ms cap for background tab recovery
 
 // Character animation speeds (ms)
-export const WALK_SPEED = 2; // pixels per frame
+export const WALK_SPEED = 4; // pixels per frame
 export const TYPING_FRAME_MS = 300;
 export const IDLE_FRAME_MS = 800;
 export const SPEECH_BUBBLE_DURATION = 5000; // ms
@@ -39,8 +39,8 @@ export const WORKER_NAMES: Record<string, string> = {
 // Lounge area for idle characters
 export const LOUNGE_AREA = { x: 14, y: 8, width: 4, height: 3 };
 
-// Door position for enter/exit
-export const DOOR_POSITION = { x: 0, y: 5 };
+// Door position for enter/exit (inside the wall, not on it)
+export const DOOR_POSITION = { x: 1, y: 5 };
 
 // Offline grayscale factor
 export const OFFLINE_DESATURATION = 0.4;

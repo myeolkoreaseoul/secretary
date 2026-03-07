@@ -3,6 +3,9 @@ import { TILE_SIZE, DOOR_POSITION, LOUNGE_AREA } from "../constants";
 import { findPath, tileKey } from "./pathfinding";
 import { createCharacter } from "./characterState";
 
+// Persistent desk assignment map (workerId → deskId)
+const deskAssignments = new Map<string, string>();
+
 /**
  * Synchronize characters with worker snapshots.
  * - New workers → spawn at door, walk to desk or lounge
@@ -16,43 +19,43 @@ export function syncCharacters(
 ): Character[] {
   const snapshotMap = new Map(snapshots.map((s) => [s.worker_id, s]));
   const result: Character[] = [];
-  const assignedDesks = new Set<string>();
   const occupiedTiles = new Set<string>();
 
-  // Track existing desk assignments
-  for (const char of existing) {
-    if (char.action === "typing" || (char.action === "walking" && char.status === "active")) {
-      const deskId = findAssignedDesk(char.workerId, layout);
-      if (deskId) assignedDesks.add(deskId);
+  // Clean up desk assignments for workers that no longer exist
+  for (const [workerId] of deskAssignments) {
+    if (!snapshotMap.has(workerId)) {
+      deskAssignments.delete(workerId);
     }
   }
+
+  // Collect currently assigned desk IDs
+  const assignedDesks = new Set<string>(deskAssignments.values());
 
   // Update existing characters
   for (const char of existing) {
     const snap = snapshotMap.get(char.workerId);
 
     if (!snap) {
-      // Worker disappeared → walk to door
-      if (char.action !== "walking" || char.path.length === 0) {
-        char.status = "offline";
-        char.action = "walking";
-        char.path = findPath(
-          { x: char.targetX, y: char.targetY },
-          DOOR_POSITION,
-          layout,
-          occupiedTiles,
-        );
-        if (char.path.length === 0) {
-          // Can't path to door, just remove
-          continue;
-        }
+      // Worker disappeared → reroute to door (fix #8: always reroute)
+      deskAssignments.delete(char.workerId);
+      char.status = "offline";
+      char.action = "walking";
+      char.path = findPath(
+        { x: char.targetX, y: char.targetY },
+        DOOR_POSITION,
+        layout,
+        occupiedTiles,
+      );
+      // Fix #3: if no path, teleport to door and mark for removal
+      if (char.path.length === 0) {
+        continue; // Remove character immediately
       }
       result.push(char);
       occupiedTiles.add(tileKey(char.targetX, char.targetY));
       continue;
     }
 
-    // Update status
+    // Update from snapshot
     const oldStatus = char.status;
     char.status = snap.status;
     char.currentTask = snap.current_task;
@@ -81,25 +84,42 @@ export function syncCharacters(
     if (snap.status === "active") {
       const desk = findFreeDesk(layout, assignedDesks);
       if (desk) {
+        // Fix #2: persist desk assignment
+        deskAssignments.set(snap.worker_id, desk.id);
         assignedDesks.add(desk.id);
-        // Walk to chair position (y + 1 from desk)
         const chairPos = { x: desk.x, y: desk.y + 1 };
-        char.path = findPath(
-          DOOR_POSITION,
-          chairPos,
-          layout,
-          occupiedTiles,
-        );
-        char.targetX = chairPos.x;
-        char.targetY = chairPos.y;
+        const path = findPath(DOOR_POSITION, chairPos, layout, occupiedTiles);
+        // Fix #3: only walk if path found
+        if (path.length > 0) {
+          char.path = path;
+          char.targetX = chairPos.x;
+          char.targetY = chairPos.y;
+        } else {
+          // Teleport to destination
+          char.x = chairPos.x * TILE_SIZE;
+          char.y = chairPos.y * TILE_SIZE;
+          char.targetX = chairPos.x;
+          char.targetY = chairPos.y;
+          char.action = "typing";
+        }
       }
     } else if (snap.status === "idle") {
       const loungePos = getRandomLoungePosition();
-      char.path = findPath(DOOR_POSITION, loungePos, layout, occupiedTiles);
-      char.targetX = loungePos.x;
-      char.targetY = loungePos.y;
+      const path = findPath(DOOR_POSITION, loungePos, layout, occupiedTiles);
+      if (path.length > 0) {
+        char.path = path;
+        char.targetX = loungePos.x;
+        char.targetY = loungePos.y;
+      } else {
+        // Teleport to lounge
+        char.x = loungePos.x * TILE_SIZE;
+        char.y = loungePos.y * TILE_SIZE;
+        char.targetX = loungePos.x;
+        char.targetY = loungePos.y;
+        char.action = "idle";
+      }
     } else {
-      // offline — place at door, no movement
+      // offline — place near door
       char.action = "offline";
       char.x = DOOR_POSITION.x * TILE_SIZE;
       char.y = (DOOR_POSITION.y + 1) * TILE_SIZE;
@@ -122,38 +142,65 @@ function handleStatusChange(
   assignedDesks: Set<string>,
 ): void {
   if (snap.status === "active") {
-    const desk = findFreeDesk(layout, assignedDesks);
+    // Check existing assignment first
+    let deskId = deskAssignments.get(char.workerId);
+    let desk = deskId
+      ? layout.furniture.find((f) => f.id === deskId)
+      : null;
+
+    if (!desk) {
+      desk = findFreeDesk(layout, assignedDesks);
+      if (desk) {
+        deskAssignments.set(char.workerId, desk.id);
+        assignedDesks.add(desk.id);
+      }
+    }
+
     if (desk) {
-      assignedDesks.add(desk.id);
       const chairPos = { x: desk.x, y: desk.y + 1 };
-      char.action = "walking";
-      char.path = findPath(
+      const path = findPath(
         { x: char.targetX, y: char.targetY },
         chairPos,
         layout,
         occupiedTiles,
       );
+      if (path.length > 0) {
+        char.action = "walking";
+        char.path = path;
+      } else {
+        // Teleport
+        char.x = chairPos.x * TILE_SIZE;
+        char.y = chairPos.y * TILE_SIZE;
+        char.targetX = chairPos.x;
+        char.targetY = chairPos.y;
+        char.action = "typing";
+      }
     }
   } else if (snap.status === "idle") {
+    // Release desk
+    deskAssignments.delete(char.workerId);
     const loungePos = getRandomLoungePosition();
-    char.action = "walking";
-    char.path = findPath(
+    const path = findPath(
       { x: char.targetX, y: char.targetY },
       loungePos,
       layout,
       occupiedTiles,
     );
+    if (path.length > 0) {
+      char.action = "walking";
+      char.path = path;
+    } else {
+      char.x = loungePos.x * TILE_SIZE;
+      char.y = loungePos.y * TILE_SIZE;
+      char.targetX = loungePos.x;
+      char.targetY = loungePos.y;
+      char.action = "idle";
+    }
   } else {
-    // offline
+    // offline — release desk
+    deskAssignments.delete(char.workerId);
     char.action = "offline";
   }
-}
-
-function findAssignedDesk(workerId: string, layout: OfficeLayout): string | null {
-  const desk = layout.furniture.find(
-    (f) => f.type === "desk" && f.assignedTo === workerId,
-  );
-  return desk?.id ?? null;
 }
 
 function findFreeDesk(

@@ -13,6 +13,8 @@ function generateTiles(): OfficeLayout["tiles"] {
       // Windows on top wall
       if (y === 0 && x >= 3 && x <= 7) type = "window";
       if (y === 0 && x >= 12 && x <= 16) type = "window";
+      // Door opening on left wall
+      if (x === 0 && (y === 5 || y === 6)) type = "floor";
       // Carpet in lounge area (bottom-right)
       if (x >= 14 && x <= 18 && y >= 8 && y <= 10) type = "carpet";
       tiles.push({ x, y, type });
