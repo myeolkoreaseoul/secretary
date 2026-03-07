@@ -121,4 +121,5 @@
 - M1~M2 전체 검증 완료 (Worker, Listener, 웹 UI, message_queue 파이프라인 정상 가동 확인)
 - M3~M5는 실사용 후 다음 세션에서 진행 예정
 - Brazilian Phonk 프롬프트 생성기 통합: Suno AI용 7장르 프롬프트 생성기를 /phonk 페이지로 추가. generate.sh→TS 포팅, 장르 균등배분, djb2 해시 중복방지, localStorage 히스토리, SlackNav phonk 모드+사이드바
-- Pixel Office 레이아웃 직렬화 개선
+- Pixel Office 엔진 포팅 완료 (Pixel Agents 오픈소스 기반): Canvas 2D 픽셀아트 사무실, OfficeState 캐릭터 상태관리, Z-sorted 렌더링, Matrix spawn/despawn, BFS 경로탐색, HiDPI+줌/패닝. 14파일 3941줄
+- Pixel Office 레이아웃 확장: 26x14 사무실 (좌석 20개), 프로젝트 15개 자리 고정, active/paused 라벨 색상 구분
