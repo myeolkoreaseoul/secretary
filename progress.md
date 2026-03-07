@@ -68,3 +68,46 @@
 ## 남은 작업
 - [ ] E2E 텔레그램 테스트: "안녕" → 세션 저장 확인
 - [ ] E2E 코딩 테스트: "hello world HTML 만들어줘" → 진행 보고 + 파일 전송
+
+---
+
+## 2026-03-06: Phase 3 LLM Council — CLI 기반 구현 (WIP, 브랜치: feat/phase3-council-wip)
+- bot/multi_model.py 신규: 3개 CLI 병렬 실행 + Council 3단계(Collect→Review→Synthesize)
+- telegram /council 명령 + MCP council_query 도구 + DB 저장
+- 테스트 통과: 3모델 병렬 OK, graceful degradation OK, council quick OK (42초)
+- systemd PATH 수정 (listener + worker)
+- **문제**: 기존 AI Gateway(ai_gateway.py) 아키텍처를 무시하고 CLI subprocess로 구현함
+- **결론**: 제로베이스 재설계 필요. CLI vs Gateway 방향성 결정 후 재구현 예정
+- 현재 코드는 WIP 브랜치에 보존, master 미머지
+
+## 2026-03-07: lilys.ai 리버스 엔지니어링 (리서치 완료)
+- lilys.ai 클론 프로젝트 사전 조사 완료
+- LLM 모델 확정: OpenAI GPT-4o(유료), GPT-3.5(무료), Whisper(STT)
+- API 구조 파악: FastAPI(uvicorn) + SSE 스트림 + Firebase Auth + AWS Lambda
+- SSE 이벤트 구조, 요청 body 포맷, 인증 흐름 전체 매핑
+- 프론트엔드: TipTap ProseMirror + 커스텀 HTML 요소 + Redux
+- 상세: `~/.claude/projects/-home-john/memory/lilys-research.md`
+- 다음: CDP 크롤러 구현 → 124개 영상 벤치마크 수집
+
+## 2026-03-07: AI 대화 프론트엔드 + 핵심 비전 정리
+
+### AI 대화 UI 구현
+- 사이드바에 "AI 대화" 메뉴 추가 (Bot 아이콘)
+- /conversations — 목록 페이지: provider 필터(Claude/Codex/Gemini), 검색, 페이지네이션
+- /conversations/[id] — 상세 페이지: 메시지 뷰어(role별 구분, 토큰수, 더보기)
+- Vercel 배포 완료
+
+### Secretary 핵심 비전 — 4축 + 마일스톤
+토론을 통해 Secretary의 본질적 방향을 정립:
+
+**축 1. 입력 장벽 제로** — UI가 슬랙/디스코드급이어야 함. 현재 "관리자 대시보드" 느낌 → 채팅 중심 UI로 전환 필요
+**축 2. 자동 토픽 분리** — 텔레그램 파이프라인에 멀티 분류(items[]) 도입 필요
+**축 3. 선제적 넛지** — 매일 아침 "오늘 신경 쓸 것" 전송, 미완료 약속 추적, 주간 패턴 인사이트
+**축 4. 소스 발굴/큐레이션** — 사용자 관심사 기반 콘텐츠 자동 수집 (최후단, Scouter 합류점)
+
+마일스톤:
+- M1: UI 리디자인 (슬랙/디스코드 레퍼런스)
+- M2: 텔레그램 멀티 분류
+- M3: Daily Nudge 엔진
+- M4: 미완료 추적 + 주간 인사이트
+- M5: 소스 큐레이션 (Scouter 연동)
