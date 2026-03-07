@@ -42,6 +42,10 @@ export interface ProjectSummary {
   tunnel_url?: string | null;
   tunnel_alive?: boolean;
   svc_scanned?: string;
+  // hierarchy
+  parent_id?: string | null;
+  auto_discovered?: boolean;
+  category?: string | null;
 }
 
 function getHealthLevel(p: ProjectSummary): string {
@@ -71,6 +75,11 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
           </div>
           {project.description && (
             <p className="text-xs text-muted-foreground">{project.description}</p>
+          )}
+          {project.auto_discovered && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-blue-400 border-blue-400/30">
+              자동감지
+            </Badge>
           )}
           {project.tags && project.tags.length > 0 && (
             <div className="flex gap-1 flex-wrap mt-1">

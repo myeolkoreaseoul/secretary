@@ -75,13 +75,16 @@ export interface TelegramMessage {
   category?: Category;
 }
 
-// 분류 결과
+// 분류 결과 (멀티 items 형태)
 export interface MessageClassification {
-  category: string;
-  title: string;
-  summary: string;
-  advice: string;
-  entities: string[];
+  // multi-item format (M2+)
+  items?: ClassifierItem[];
+  // legacy single format (하위호환)
+  category?: string;
+  title?: string;
+  summary?: string;
+  advice?: string;
+  entities?: string[];
 }
 
 // 활동 로그

@@ -21,13 +21,14 @@ import {
   Loader2,
   Music,
   Disc3,
+  Monitor,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { TimerWidget } from "./TimerWidget";
 import { apiFetch } from "@/lib/api-client";
 
 /* ── 모드 정의 ── */
-type Mode = "home" | "channels" | "dm" | "todos" | "time" | "phonk" | "settings";
+type Mode = "home" | "channels" | "dm" | "todos" | "time" | "phonk" | "overseer" | "settings";
 
 const railItems: { id: Mode; icon: typeof Home; label: string }[] = [
   { id: "home", icon: Home, label: "홈" },
@@ -36,6 +37,7 @@ const railItems: { id: Mode; icon: typeof Home; label: string }[] = [
   { id: "todos", icon: CheckSquare, label: "할일" },
   { id: "time", icon: Clock, label: "시간" },
   { id: "phonk", icon: Music, label: "Phonk" },
+  { id: "overseer", icon: Monitor, label: "총괄" },
 ];
 
 /* ── 모드별 기본 라우트 ── */
@@ -46,6 +48,7 @@ const modeDefaultRoute: Record<Mode, string> = {
   todos: "/todos",
   time: "/time",
   phonk: "/phonk",
+  overseer: "/overseer",
   settings: "/settings",
 };
 
@@ -57,6 +60,7 @@ function getMode(pathname: string): Mode {
   if (pathname.startsWith("/todos")) return "todos";
   if (pathname.startsWith("/time")) return "time";
   if (pathname.startsWith("/phonk")) return "phonk";
+  if (pathname.startsWith("/overseer")) return "overseer";
   if (pathname.startsWith("/settings")) return "settings";
   // fallback: legacy routes
   if (pathname.startsWith("/history")) return "channels";
@@ -76,6 +80,7 @@ const pageTitles: Record<string, string> = {
   "/time": "시간 추적",
   "/settings": "설정",
   "/phonk": "Phonk Generator",
+  "/overseer": "프로젝트 총괄",
   "/search": "검색",
 };
 
@@ -184,6 +189,7 @@ export function SlackSidebar() {
         {currentMode === "todos" && <TodosSidebar pathname={pathname} />}
         {currentMode === "time" && <TimeSidebar pathname={pathname} />}
         {currentMode === "phonk" && <PhonkSidebar pathname={pathname} />}
+        {currentMode === "overseer" && <OverseerSidebar pathname={pathname} />}
         {currentMode === "settings" && <SettingsSidebar pathname={pathname} />}
       </nav>
     </div>
@@ -361,6 +367,18 @@ function PhonkSidebar({ pathname }: { pathname: string }) {
         <Clock className="w-4 h-4 shrink-0 opacity-70" />
         <span className="truncate">히스토리</span>
       </button>
+    </div>
+  );
+}
+
+/* ── Overseer Sidebar ── */
+function OverseerSidebar({ pathname }: { pathname: string }) {
+  return (
+    <div className="space-y-1">
+      <div className="slack-sidebar-section-header">
+        <span>프로젝트 총괄</span>
+      </div>
+      <SidebarItem href="/overseer" label="대시보드" icon={Monitor} active={pathname === "/overseer"} />
     </div>
   );
 }

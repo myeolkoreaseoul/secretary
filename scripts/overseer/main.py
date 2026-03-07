@@ -13,6 +13,7 @@ import requests
 
 from .config import SUPABASE_REST_URL, SUPABASE_HEADERS, PROJECTS, THRESHOLDS, logger
 from . import scan_git, scan_fs, scan_services
+from .auto_discover import discover_and_register
 
 
 def upsert_project(project: dict) -> str | None:
@@ -59,13 +60,41 @@ def update_project_status(project_id: str, status: str):
         logger.error("status update failed: %s", e)
 
 
+def _get_all_projects() -> list[dict]:
+    """DB에서 path가 있는 모든 프로젝트 가져오기 (하드코딩 대체)."""
+    url = f"{SUPABASE_REST_URL}/overseer_projects?select=id,name,path,github_repo,notion_id,description,tags&path=not.is.null"
+    headers = {**SUPABASE_HEADERS}
+    headers.pop("Prefer", None)
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.error("Failed to fetch projects from DB: %s", e)
+        # fallback to hardcoded
+        return PROJECTS
+
+
 def run_scan(scan_type: str = "all"):
     """Run scans for all projects."""
     logger.info("=== Overseer scan started (type=%s) ===", scan_type)
 
-    for proj in PROJECTS:
+    # 자동 감지 (all 또는 discover 시)
+    if scan_type in ("all", "discover"):
+        discover_and_register()
+
+    # discover만이면 스캔 없이 종료
+    if scan_type == "discover":
+        logger.info("=== Overseer discover complete ===")
+        return
+
+    # DB에서 프로젝트 목록 가져오기 (하드코딩 대신)
+    projects = _get_all_projects()
+
+    for proj in projects:
         logger.info("Scanning %s ...", proj["name"])
-        project_id = upsert_project(proj)
+        # DB에서 가져온 경우 id가 이미 있음
+        project_id = proj.get("id") or upsert_project(proj)
         if not project_id:
             continue
 
@@ -121,7 +150,7 @@ def run_scan(scan_type: str = "all"):
 def main():
     parser = argparse.ArgumentParser(description="Overseer scanner")
     parser.add_argument(
-        "--type", choices=["all", "git", "fs", "svc"], default="all",
+        "--type", choices=["all", "git", "fs", "svc", "discover"], default="all",
         help="Scan type: all, git, fs, svc",
     )
     args = parser.parse_args()

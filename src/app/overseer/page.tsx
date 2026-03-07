@@ -2,6 +2,7 @@
 
 import { Monitor } from "lucide-react";
 import { ProjectGrid } from "@/components/overseer/ProjectGrid";
+import { PixelOffice } from "@/components/overseer/pixel-office";
 
 export default function OverseerPage() {
   return (
@@ -15,6 +16,7 @@ export default function OverseerPage() {
           </p>
         </div>
       </div>
+      <PixelOffice />
       <ProjectGrid />
     </div>
   );

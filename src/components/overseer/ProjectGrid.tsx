@@ -109,13 +109,40 @@ export function ProjectGrid() {
     );
   }
 
+  // 하위 프로젝트 찾기 (parent_id로 연결)
+  function getChildProjects(parentName: string): ProjectSummary[] {
+    const parent = projectMap[parentName];
+    if (!parent) return [];
+    return Object.values(projectMap).filter(
+      (p) => p.parent_id === parent.id
+    );
+  }
+
   function renderProjects(names: string[]) {
+    // parent_id가 있는 프로젝트는 부모 아래서 렌더링되므로 여기선 제외
+    const topLevel = names.filter((name) => {
+      const proj = projectMap[name];
+      return !proj?.parent_id;
+    });
+
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {names.map((name) => {
+        {topLevel.map((name) => {
           const proj = projectMap[name];
+          const children = getChildProjects(name);
           if (proj) {
-            return <ProjectCard key={name} project={proj} />;
+            return (
+              <div key={name}>
+                <ProjectCard project={proj} />
+                {children.length > 0 && (
+                  <div className="ml-4 mt-1 space-y-1 border-l-2 border-zinc-700 pl-3">
+                    {children.map((child) => (
+                      <ProjectCard key={child.id} project={child} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
           }
           // 프로젝트 데이터 없음 (보류/미스캔)
           return (
