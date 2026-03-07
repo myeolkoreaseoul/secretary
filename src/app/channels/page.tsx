@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useRealtimeInsert } from "@/hooks/useRealtime";
 import { apiFetch } from "@/lib/api-client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,8 @@ export default function ChannelsPage() {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<HistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [newBanner, setNewBanner] = useState(false);
+  const pageRef = useRef(page);
 
   const fetchHistory = useCallback(async () => {
     setLoading(true);
@@ -67,8 +70,31 @@ export default function ChannelsPage() {
   }, [query, page]);
 
   useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  useEffect(() => {
     fetchHistory();
   }, [fetchHistory]);
+
+  useRealtimeInsert({
+    table: 'telegram_messages',
+    onInsert: useCallback((row: Record<string, unknown>) => {
+      if (pageRef.current === 1) {
+        setData((prev) => {
+          if (!prev) return prev;
+          const newMsg = row as unknown as TelegramMessage & { category: Category | null };
+          return {
+            ...prev,
+            messages: [newMsg, ...prev.messages],
+            total: prev.total + 1,
+          };
+        });
+      } else {
+        setNewBanner(true);
+      }
+    }, []),
+  });
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,6 +131,15 @@ export default function ChannelsPage() {
           텔레그램 대화를 날짜별로 확인하고 편집합니다
         </p>
       </div>
+
+      {newBanner && (
+        <button
+          onClick={() => { setPage(1); setNewBanner(false); }}
+          className="w-full mb-3 text-sm text-center py-2 px-4 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+        >
+          새 메시지가 도착했습니다 — 클릭하여 첫 페이지로
+        </button>
+      )}
 
       <form onSubmit={handleSearch} className="flex gap-2 mb-6">
         <Input
@@ -250,9 +285,17 @@ function MessageItem({
             )}
           </div>
         </div>
-        {cls?.title && (
+        {cls?.items && cls.items.length > 0 ? (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {cls.items.map((item, i) => (
+              <Badge key={i} variant="outline" className="text-[10px]">
+                {item.category}: {item.title}
+              </Badge>
+            ))}
+          </div>
+        ) : cls?.title ? (
           <CardTitle className="text-xs mt-1">{cls.title}</CardTitle>
-        )}
+        ) : null}
       </CardHeader>
       <CardContent className="py-2">
         {editing ? (

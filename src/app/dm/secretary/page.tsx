@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { apiFetch } from "@/lib/api-client";
+import { useRealtimeInsert } from "@/hooks/useRealtime";
 import { Send, Loader2, MessageSquare } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -18,10 +19,12 @@ export default function SecretaryChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  const ownerChatId = process.env.NEXT_PUBLIC_OWNER_CHAT_ID;
+
   // Load chat history on mount
   const loadHistory = useCallback(async () => {
     try {
-      const res = await apiFetch("/api/history?chat_id=0&page=1");
+      const res = await apiFetch(`/api/history?chat_id=${ownerChatId}&page=1`);
       const data = await res.json();
       const msgs: ChatMessage[] = (data.messages || [])
         .slice()
@@ -50,12 +53,27 @@ export default function SecretaryChatPage() {
     if (!historyLoading) inputRef.current?.focus();
   }, [historyLoading]);
 
+  useRealtimeInsert({
+    table: 'telegram_messages',
+    filter: `chat_id=eq.${ownerChatId}`,
+    onInsert: useCallback((row: Record<string, unknown>) => {
+      if (row.role !== 'assistant') return;
+      const content = row.content as string;
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.role === 'assistant' && last.content === content) return prev;
+        return [...prev, { role: 'assistant', content }];
+      });
+      setLoading(false);
+    }, []),
+  });
+
   const send = async () => {
     const msg = input.trim();
     if (!msg || loading) return;
 
-    setInput("");
     setMessages((prev) => [...prev, { role: "user", content: msg }]);
+    setInput("");
     setLoading(true);
 
     try {
@@ -65,16 +83,18 @@ export default function SecretaryChatPage() {
         body: JSON.stringify({ message: msg }),
       });
       const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.reply || data.error || "오류" },
-      ]);
+
+      // 슬래시 명령어는 동기 응답 (reply 필드 있음)
+      if (data.reply) {
+        setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
+        setLoading(false);
+      }
+      // 일반 대화(queued=true)는 Realtime onInsert가 setLoading(false) 처리
     } catch {
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: "네트워크 오류가 발생했습니다." },
       ]);
-    } finally {
       setLoading(false);
     }
   };

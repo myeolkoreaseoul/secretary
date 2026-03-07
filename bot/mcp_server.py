@@ -256,6 +256,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         ))]
 
 
+async def _classify_and_save(msg_id: str, content: str) -> None:
+    """Background task: classify message with Gemini and persist result."""
+    try:
+        from bot import classifier
+        result = await asyncio.to_thread(classifier.classify_message, content)
+        if result:
+            await db.save_classification(msg_id, result)
+            log.info("Background classification saved for msg_id=%s", msg_id)
+    except Exception as e:
+        log.error("Background classification failed for msg_id=%s: %s", msg_id, e)
+
+
 def _validate_chat_id(chat_id: int) -> bool:
     """Verify chat_id is in the allowed users list."""
     if not TELEGRAM_ALLOWED_USERS:
@@ -295,6 +307,9 @@ async def _dispatch(name: str, args: dict) -> dict:
         # Save embedding if generated
         if vec:
             await db.save_embedding("telegram_messages", msg["id"], vec, emb.get_model_name())
+
+        # Fire-and-forget Gemini classification (user role only)
+        asyncio.create_task(_classify_and_save(msg["id"], content))
 
         # Vector search with the embedding
         similar = []

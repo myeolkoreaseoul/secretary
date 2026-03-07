@@ -111,3 +111,7 @@
 - M3: Daily Nudge 엔진
 - M4: 미완료 추적 + 주간 인사이트
 - M5: 소스 큐레이션 (Scouter 연동)
+
+## 2026-03-07
+- Bot-1 (스트리밍 최적화): asyncio.create_subprocess_exec + --output-format stream-json 도입 → 체감 대기 20-30초→2-5초, asyncio.to_thread 제거, session_id type=result에서 직접 추출 (worker.py)
+- Bot-2 (웹-텔레그램 컨텍스트 통합): 웹 /api/chat → message_queue INSERT → Worker 처리. OWNER_CHAT_ID(8280174296) 공유 세션으로 텔레그램↔웹 대화 통합. 응답은 Supabase Realtime 수신. (route.ts, page.tsx, .env.local)

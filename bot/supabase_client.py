@@ -257,18 +257,25 @@ async def get_recent_messages(chat_id: int, hours: int = 24) -> list[dict]:
 
 
 async def save_classification(msg_id: str, classification: dict) -> None:
-    """Save classification result for a message."""
-    category_name = classification.get("category", "")
-    category_id = None
+    """Save classification result for a message.
 
+    Supports multi-item format {"items": [...]} and legacy {"category": "..."}.
+    Primary category_id is taken from items[0] (multi) or .category (legacy).
+    """
+    items = classification.get("items")
+    if items and isinstance(items, list) and items:
+        category_name = items[0].get("category", "")
+    else:
+        category_name = classification.get("category", "")
+
+    category_id = None
     if category_name:
         categories = await get_categories()
         for cat in categories:
             if cat["name"] == category_name:
                 category_id = cat["id"]
                 break
-        # Create new category if not found
-        if category_id is None and category_name:
+        if category_id is None:
             new_cat = await upsert_category(category_name)
             category_id = new_cat["id"]
 
