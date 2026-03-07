@@ -20,7 +20,9 @@ function checkRateLimit(key: string): boolean {
 export function middleware(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith('/api/')) {
     // chat-relay는 자체 RELAY_SECRET 검증 → x-api-key 검증 스킵
-    if (request.nextUrl.pathname.includes('/chat-relay')) {
+    // overseer는 내부 대시보드 전용 → x-api-key 검증 스킵
+    if (request.nextUrl.pathname.includes('/chat-relay') ||
+        request.nextUrl.pathname.includes('/overseer')) {
       return NextResponse.next();
     }
 

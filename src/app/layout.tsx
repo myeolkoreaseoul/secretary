@@ -11,6 +11,7 @@ import {
   Youtube,
   Settings,
   Command,
+  Monitor,
 } from "lucide-react";
 import { ClientProviders, TimerWidget } from "@/components/ClientProviders";
 import "./globals.css";
@@ -38,6 +39,7 @@ const navItems = [
   { href: "/time", label: "시간", icon: Clock },
   { href: "/digest", label: "다이제스트", icon: Newspaper },
   { href: "/yt", label: "유튜브", icon: Youtube },
+  { href: "/overseer", label: "총괄", icon: Monitor },
   { href: "/settings", label: "설정", icon: Settings },
 ];
 
