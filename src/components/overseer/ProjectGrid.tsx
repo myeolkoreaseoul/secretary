@@ -12,7 +12,7 @@ import {
   Folder,
 } from "lucide-react";
 import { ProjectCard, type ProjectSummary } from "./ProjectCard";
-import { WorkerPanel } from "./WorkerPanel";
+import { PixelOffice } from "./pixel-office";
 
 interface TreeCategory {
   id: string;
@@ -260,8 +260,8 @@ export function ProjectGrid() {
         </div>
       </div>
 
-      {/* Worker Panel */}
-      <WorkerPanel />
+      {/* Pixel Office */}
+      <PixelOffice />
 
       {/* Tree */}
       {tree ? (

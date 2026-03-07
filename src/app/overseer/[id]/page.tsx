@@ -14,7 +14,7 @@ import { FsHealthPanel } from "@/components/overseer/FsHealthPanel";
 import { ServiceMonitor } from "@/components/overseer/ServiceMonitor";
 import { ActionPanel } from "@/components/overseer/ActionPanel";
 import { TrendChart } from "@/components/overseer/TrendChart";
-import { WorkerPanel } from "@/components/overseer/WorkerPanel";
+import { PixelOffice } from "@/components/overseer/pixel-office";
 import type { ProjectSummary } from "@/components/overseer/ProjectCard";
 
 interface FsSnapshot {
@@ -186,7 +186,7 @@ export default function ProjectDetailPage() {
         </TabsContent>
 
         <TabsContent value="workers" className="mt-4">
-          <WorkerPanel projectId={id} />
+          <PixelOffice projectId={id} />
         </TabsContent>
 
         <TabsContent value="trends" className="space-y-4 mt-4">
