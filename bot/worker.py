@@ -16,7 +16,11 @@ import subprocess
 import time
 from pathlib import Path
 
-from bot.config import require_env, BOT_DIR, TELEGRAM_ALLOWED_USERS
+from bot.config import (
+    require_env, BOT_DIR, TELEGRAM_ALLOWED_USERS,
+    CLAUDE_MODEL_SIMPLE, CLAUDE_MODEL_COMPLEX,
+    CLAUDE_TIMEOUT_SIMPLE, CLAUDE_TIMEOUT_COMPLEX,
+)
 from bot import supabase_client as db
 from bot import telegram_sender as tg
 
@@ -25,30 +29,37 @@ log = logging.getLogger("secretary.worker")
 POLL_INTERVAL = 3  # seconds between queue checks
 LOCK_FILE = BOT_DIR / "worker.lock"
 MCP_CONFIG = BOT_DIR / "mcp.json"
-CLAUDE_MD = BOT_DIR / "CLAUDE.md"
+CLAUDE_MD_SIMPLE = BOT_DIR / "CLAUDE_SIMPLE.md"
+CLAUDE_MD_FULL = BOT_DIR / "CLAUDE_FULL.md"
 SESSIONS_FILE = BOT_DIR / "sessions.json"
 WORKSPACE_DIR = Path("/home/john/projects/workspace")
 SESSION_TTL = 7 * 24 * 60 * 60  # 7 days — Claude CLI auto-compacts long sessions
-CLAUDE_TIMEOUT_DEFAULT = 1800  # 30 minutes (was 600)
-CLAUDE_TIMEOUT_LONG = 3600  # 60 minutes for complex tasks
 DRAIN_WAIT = 0.5  # seconds to wait for additional messages
 MAX_RETRIES = 3  # max retry attempts for failed messages
 ZOMBIE_TIMEOUT = 1800  # seconds before a "processing" message is considered zombie
 
-# Keywords that indicate a complex/long-running task
-_LONG_TASK_KEYWORDS = re.compile(
-    r"루프런|looprun|구현|코딩|빌드|테스트|qa|리팩토|수정해|만들어|"
-    r"설치|배포|작성|프로젝트|개발|멈추지.?말|끝까지|될때까지|자러간다|"
-    r"implement|build|deploy|refactor|coding",
+# Keywords that indicate a complex/long-running task → Opus routing
+_COMPLEX_KEYWORDS = re.compile(
+    r"코딩|구현|빌드|테스트|qa|리팩토|수정해|만들어|설치|배포|작성|"
+    r"프로젝트|개발|implement|build|deploy|refactor|coding|"
+    r"루프런|looprun|멈추지.?말|끝까지|될때까지|자러간다|"
+    r"플래닝|시간표|계획.세워|리뷰.트리거",
     re.IGNORECASE,
 )
 
 
+def _get_model(content: str) -> str:
+    """Route to Opus for complex tasks, Haiku for everything else."""
+    if _COMPLEX_KEYWORDS.search(content):
+        return CLAUDE_MODEL_COMPLEX
+    return CLAUDE_MODEL_SIMPLE
+
+
 def _get_timeout(content: str) -> int:
-    """Return appropriate timeout based on message content."""
-    if _LONG_TASK_KEYWORDS.search(content):
-        return CLAUDE_TIMEOUT_LONG
-    return CLAUDE_TIMEOUT_DEFAULT
+    """Return appropriate timeout based on routed model."""
+    if _COMPLEX_KEYWORDS.search(content):
+        return CLAUDE_TIMEOUT_COMPLEX
+    return CLAUDE_TIMEOUT_SIMPLE
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +200,7 @@ def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
     Uses --output-format json to extract session_id.
     Resumes existing sessions with --resume.
     Falls back to new session if resume fails.
+    Routes to Haiku (simple) or Opus (complex) based on message content.
     """
     prompt = (
         f"새 텔레그램 메시지가 도착했습니다.\n"
@@ -197,28 +209,40 @@ def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
         f"위 워크플로우에 따라 처리해주세요."
     )
 
+    model = _get_model(message_content)
     timeout = _get_timeout(message_content)
     session_id = get_session(chat_id)
 
-    success, output = _invoke_claude(prompt, chat_id, session_id, timeout)
+    log.info("Routing to %s for message (timeout=%ds)", model, timeout)
+
+    success, output = _invoke_claude(prompt, chat_id, session_id, timeout, model)
 
     # If resume failed, retry without session
     if not success and session_id:
         log.warning("Resume failed for chat_id=%s, retrying without session", chat_id)
         clear_session(chat_id)
-        success, output = _invoke_claude(prompt, chat_id, session_id=None, timeout=timeout)
+        success, output = _invoke_claude(prompt, chat_id, session_id=None, timeout=timeout, model=model)
 
     return success, output
 
 
-def _invoke_claude(prompt: str, chat_id: int, session_id: str | None, timeout: int) -> tuple[bool, str]:
+def _invoke_claude(
+    prompt: str,
+    chat_id: int,
+    session_id: str | None,
+    timeout: int,
+    model: str = CLAUDE_MODEL_COMPLEX,
+) -> tuple[bool, str]:
     """Low-level Claude CLI invocation."""
+    # Select system prompt based on model
+    system_prompt = CLAUDE_MD_FULL if model == CLAUDE_MODEL_COMPLEX else CLAUDE_MD_SIMPLE
+
     cmd = [
         "claude", "-p",
-        "--model", "claude-opus-4-6",
+        "--model", model,
         "--dangerously-skip-permissions",
         "--mcp-config", str(MCP_CONFIG),
-        "--append-system-prompt-file", str(CLAUDE_MD),
+        "--append-system-prompt-file", str(system_prompt),
         "--output-format", "json",
     ]
     if session_id:
@@ -230,7 +254,8 @@ def _invoke_claude(prompt: str, chat_id: int, session_id: str | None, timeout: i
     env.pop("CLAUDECODE", None)
 
     log.info(
-        "Executing Claude CLI (resume=%s, timeout=%ds)...",
+        "Executing Claude CLI (model=%s, resume=%s, timeout=%ds)...",
+        model,
         session_id[:8] if session_id else "new",
         timeout,
     )
@@ -492,8 +517,8 @@ async def main():
     require_env()
     WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
     log.info(
-        "Starting message worker (poll=%ds, timeout=%d/%ds, retries=%d)...",
-        POLL_INTERVAL, CLAUDE_TIMEOUT_DEFAULT, CLAUDE_TIMEOUT_LONG, MAX_RETRIES,
+        "Starting message worker (poll=%ds, simple=%ds, complex=%ds, retries=%d)...",
+        POLL_INTERVAL, CLAUDE_TIMEOUT_SIMPLE, CLAUDE_TIMEOUT_COMPLEX, MAX_RETRIES,
     )
 
     # #3: Recover zombie messages on startup
