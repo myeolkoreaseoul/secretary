@@ -48,7 +48,7 @@ function getHealthLevel(p: ProjectSummary): string {
   if ((p.git_unpushed ?? 0) >= 10) return "warning";
   if ((p.git_uncommitted ?? 0) >= 20) return "warning";
   if ((p.git_stale ?? 0) >= 5) return "warning";
-  // node_modules는 정상이므로 제외하고 진짜 쓰레기만 판정
+  // node_modules 제외, 나머지 캐시만 판정
   const realJunk = (p.junk_mb ?? 0) - (p.node_modules_mb ?? 0);
   if (realJunk >= 100) return "warning";
   if ((p.total_size_mb ?? 0) >= 5120) return "warning";

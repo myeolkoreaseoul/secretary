@@ -1,6 +1,6 @@
 "use client";
 
-import { HardDrive, Trash2 } from "lucide-react";
+import { HardDrive, FolderSync } from "lucide-react";
 
 interface FsData {
   total_size_mb?: number;
@@ -31,9 +31,9 @@ export function FsHealthPanel({ data }: { data: FsData }) {
       </div>
       {(data.junk_mb ?? 0) > 0 && (
         <div className="flex items-center gap-1.5">
-          <Trash2 className="w-3 h-3 text-muted-foreground" />
+          <FolderSync className="w-3 h-3 text-muted-foreground" />
           <span className={hasJunk ? "text-orange-400" : "text-muted-foreground"}>
-            쓰레기 {data.junk_mb} MB
+            캐시 {data.junk_mb} MB
           </span>
           {(data.node_modules_mb ?? 0) > 0 && (
             <span className="text-zinc-600">

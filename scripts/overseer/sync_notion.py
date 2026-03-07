@@ -99,7 +99,7 @@ def _build_status_blocks(proj: dict) -> list[dict]:
         size = proj["total_size_mb"]
         fs_line = f"용량: {size:.0f} MB"
         if proj.get("junk_mb") and proj["junk_mb"] > 1:
-            fs_line += f"  |  쓰레기: {proj['junk_mb']:.0f} MB"
+            fs_line += f"  |  캐시: {proj['junk_mb']:.0f} MB"
         if proj.get("file_count"):
             fs_line += f"  |  {proj['file_count']} 파일"
         lines.append(fs_line)
@@ -122,7 +122,7 @@ def _build_status_blocks(proj: dict) -> list[dict]:
     if (proj.get("git_uncommitted") or 0) >= 20:
         warnings.append(f"미커밋 {proj['git_uncommitted']}개")
     if (proj.get("junk_mb") or 0) >= 100:
-        warnings.append(f"쓰레기 {proj['junk_mb']:.0f} MB")
+        warnings.append(f"캐시 {proj['junk_mb']:.0f} MB")
     if (proj.get("total_size_mb") or 0) >= 5120:
         warnings.append(f"프로젝트 {proj['total_size_mb']/1024:.1f} GB")
 

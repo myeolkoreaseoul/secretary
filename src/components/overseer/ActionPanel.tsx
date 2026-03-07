@@ -55,7 +55,7 @@ export function ActionPanel({ projectId, projectName }: ActionPanelProps) {
           className="text-xs"
         >
           <Trash2 className="w-3 h-3 mr-1" />
-          쓰레기 검색
+          캐시 정리
         </Button>
         <Button
           size="sm"
