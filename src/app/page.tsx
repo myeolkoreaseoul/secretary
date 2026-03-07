@@ -231,7 +231,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm">최근 대화</CardTitle>
               <Link
-                href="/history"
+                href="/channels"
                 className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
               >
                 전체 보기
