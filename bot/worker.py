@@ -12,7 +12,6 @@ import json
 import logging
 import os
 import re
-import subprocess
 import time
 from pathlib import Path
 
@@ -193,11 +192,11 @@ def clear_session(chat_id: int) -> None:
 # Claude CLI Execution
 # ---------------------------------------------------------------------------
 
-def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
+async def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
     """Run Claude CLI with MCP server and session support.
 
     Returns (success, output).
-    Uses --output-format json to extract session_id.
+    Uses --output-format stream-json for streaming first-token delivery.
     Resumes existing sessions with --resume.
     Falls back to new session if resume fails.
     Routes to Haiku (simple) or Opus (complex) based on message content.
@@ -215,25 +214,25 @@ def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
 
     log.info("Routing to %s for message (timeout=%ds)", model, timeout)
 
-    success, output = _invoke_claude(prompt, chat_id, session_id, timeout, model)
+    success, output = await _invoke_claude(prompt, chat_id, session_id, timeout, model)
 
     # If resume failed, retry without session
     if not success and session_id:
         log.warning("Resume failed for chat_id=%s, retrying without session", chat_id)
         clear_session(chat_id)
-        success, output = _invoke_claude(prompt, chat_id, session_id=None, timeout=timeout, model=model)
+        success, output = await _invoke_claude(prompt, chat_id, session_id=None, timeout=timeout, model=model)
 
     return success, output
 
 
-def _invoke_claude(
+async def _invoke_claude(
     prompt: str,
     chat_id: int,
     session_id: str | None,
     timeout: int,
     model: str = CLAUDE_MODEL_COMPLEX,
 ) -> tuple[bool, str]:
-    """Low-level Claude CLI invocation."""
+    """Low-level Claude CLI invocation (async subprocess + stream-json)."""
     # Select system prompt based on model
     system_prompt = CLAUDE_MD_FULL if model == CLAUDE_MODEL_COMPLEX else CLAUDE_MD_SIMPLE
 
@@ -243,7 +242,7 @@ def _invoke_claude(
         "--dangerously-skip-permissions",
         "--mcp-config", str(MCP_CONFIG),
         "--append-system-prompt-file", str(system_prompt),
-        "--output-format", "json",
+        "--output-format", "stream-json",
     ]
     if session_id:
         cmd.extend(["--resume", session_id])
@@ -261,30 +260,65 @@ def _invoke_claude(
     )
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
             cwd=str(WORKSPACE_DIR),
             env=env,
         )
 
-        if result.returncode == 0:
+        first_text_sent = False
+        result_text = ""
+        new_session_id = None
+
+        async def _read_stream():
+            nonlocal first_text_sent, result_text, new_session_id
+            async for raw_line in proc.stdout:
+                line = raw_line.decode().strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    log.debug("Non-JSON line from Claude: %s", line[:200])
+                    continue
+
+                etype = event.get("type")
+
+                if etype == "assistant":
+                    for block in event.get("message", {}).get("content", []):
+                        if block.get("type") == "text":
+                            result_text += block["text"]
+                            if not first_text_sent:
+                                log.info("First token received from Claude (streaming)")
+                                first_text_sent = True
+
+                elif etype == "result":
+                    result_text = event.get("result", result_text)
+                    new_session_id = event.get("session_id")
+
+        await asyncio.wait_for(_read_stream(), timeout=timeout)
+        await proc.wait()
+
+        if new_session_id:
+            set_session(chat_id, new_session_id)
+            log.info("Session saved: %s", new_session_id[:8])
+
+        if proc.returncode == 0:
             log.info("Claude CLI completed successfully")
-            # Parse JSON output to extract session_id
-            _extract_and_save_session(result.stdout, chat_id)
-            return True, result.stdout
+            return True, result_text
 
-        log.warning(
-            "Claude CLI failed (code=%d): stderr=%s",
-            result.returncode,
-            result.stderr[:500],
-        )
-        return False, result.stderr[:500] or f"exit_code={result.returncode}"
+        stderr = (await proc.stderr.read()).decode()
+        log.warning("Claude CLI failed (code=%d): stderr=%s", proc.returncode, stderr[:500])
+        return False, stderr[:500] or f"exit_code={proc.returncode}"
 
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         log.error("Claude CLI timed out after %ds", timeout)
+        try:
+            proc.kill()
+        except Exception:
+            pass
         return False, "timeout"
     except FileNotFoundError:
         log.error("Claude CLI not found in PATH")
@@ -292,18 +326,6 @@ def _invoke_claude(
     except Exception as e:
         log.error("Claude CLI error: %s", e)
         return False, str(e)
-
-
-def _extract_and_save_session(raw_output: str, chat_id: int) -> None:
-    """Parse JSON output from Claude CLI and save session_id."""
-    try:
-        data = json.loads(raw_output)
-        sid = data.get("session_id")
-        if sid:
-            set_session(chat_id, sid)
-            log.info("Saved session_id=%s for chat_id=%s", sid[:8], chat_id)
-    except (json.JSONDecodeError, AttributeError):
-        log.debug("Could not parse session_id from Claude output")
 
 
 # ---------------------------------------------------------------------------
@@ -476,7 +498,7 @@ async def process_one() -> bool:
                 await db.requeue_message(qid)
             return True
 
-        success, output = await asyncio.to_thread(run_claude, combined_content, chat_id)
+        success, output = await run_claude(combined_content, chat_id)
 
         if success:
             for qid in all_queue_ids:
