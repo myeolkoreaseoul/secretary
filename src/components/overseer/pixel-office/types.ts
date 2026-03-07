@@ -1,4 +1,4 @@
-export type TileType = "floor" | "wall" | "carpet" | "window";
+export type TileType = "floor" | "wall" | "carpet" | "window" | "void";
 export type FurnitureType =
   | "desk"
   | "chair"
@@ -6,11 +6,25 @@ export type FurnitureType =
   | "monitor"
   | "bookshelf"
   | "water_cooler";
-export type CharacterAction = "idle" | "walking" | "typing" | "offline";
+export type CharacterAction = "idle" | "walking" | "typing" | "reading" | "offline";
 export type Direction = "up" | "down" | "left" | "right";
 
-/** 16x16 hex color grid. null = transparent pixel */
+/** 16x24 sprite template. Characters use letter codes mapped to palette colors.
+ *  '_' = transparent, 'H' = hair, 'K' = skin, 'S' = shirt, 'P' = pants, 'O' = shoes, 'E' = eyes */
+export type SpriteTemplate = string[][];
+
+/** Resolved 16x24 hex color grid. null = transparent pixel */
 export type SpriteFrame = (string | null)[][];
+
+/** Character color palette */
+export interface CharacterPalette {
+  skin: string;
+  hair: string;
+  shirt: string;
+  pants: string;
+  shoes: string;
+  eyes: string;
+}
 
 export interface OfficeLayout {
   version: number;
@@ -35,6 +49,7 @@ export interface Character {
   workerType: string;
   name: string;
   machine: string | null;
+  paletteIndex: number;
   status: "active" | "idle" | "offline";
   action: CharacterAction;
   direction: Direction;
@@ -46,7 +61,10 @@ export interface Character {
   animFrame: number;
   animTimer: number;
   currentTask: string | null;
+  currentTool: string | null;
   speechBubbleTimer: number;
+  spawnProgress: number; // 0→1 for matrix spawn effect
+  sittingOffset: number;
 }
 
 export interface Camera {
@@ -80,9 +98,15 @@ export interface WorkerSnapshot {
   scanned_at: string;
 }
 
-export interface SpriteSet {
-  idle: Record<Direction, SpriteFrame[]>;
-  walking: Record<Direction, SpriteFrame[]>;
-  typing: SpriteFrame[];
-  offline: SpriteFrame[];
+/** Sprite cache entry — pre-rendered canvas at specific zoom */
+export interface CachedSprite {
+  canvas: HTMLCanvasElement;
+  width: number;
+  height: number;
 }
+
+/** Floor tile pattern — 16x16 grid of hex colors */
+export type FloorPattern = string[][];
+
+/** Wall auto-tile bitmask (N=1, E=2, S=4, W=8) */
+export type WallBitmask = number;

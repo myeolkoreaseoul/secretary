@@ -1,277 +1,410 @@
-import type { SpriteFrame } from "../types";
+import type { CharacterPalette, Direction, SpriteFrame, SpriteTemplate } from "../types";
 
-// Helper: shorthand row builder
-// Each string is a hex color or "." for transparent
-function row(...pixels: string[]): (string | null)[] {
-  return pixels.map((p) => (p === "." ? null : p));
-}
-
-const _ = ".";
-
-// ============================================================
-// CHARACTER SPRITES (16x16)
-// ============================================================
-
-// --- Claude Code (orange/tan, headphones) ---
-const CLAUDE_IDLE_DOWN: SpriteFrame = [
-  row(_, _, _, _, _, _, "#333", "#333", "#333", "#333", _, _, _, _, _, _),
-  row(_, _, _, _, _, "#333", "#d97706", "#d97706", "#d97706", "#d97706", "#333", _, _, _, _, _),
-  row(_, _, _, _, "#333", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#333", _, _, _, _),
-  row(_, _, _, "#555", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#555", _, _, _),
-  row(_, _, _, "#555", "#d97706", "#fde68a", "#fde68a", "#d97706", "#d97706", "#fde68a", "#fde68a", "#d97706", "#555", _, _, _),
-  row(_, _, _, _, "#d97706", "#fde68a", "#1a1a1a", "#fde68a", "#d97706", "#fde68a", "#1a1a1a", "#fde68a", "#d97706", _, _, _),
-  row(_, _, _, _, "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", _, _, _),
-  row(_, _, _, _, _, "#d97706", "#d97706", "#92400e", "#92400e", "#d97706", "#d97706", _, _, _, _, _),
-  row(_, _, _, _, _, _, "#92400e", "#92400e", "#92400e", "#92400e", _, _, _, _, _, _),
-  row(_, _, _, _, _, "#92400e", "#92400e", "#d97706", "#d97706", "#92400e", "#92400e", _, _, _, _, _),
-  row(_, _, _, _, "#92400e", "#92400e", "#d97706", "#d97706", "#d97706", "#d97706", "#92400e", "#92400e", _, _, _, _),
-  row(_, _, _, _, "#92400e", _, "#d97706", "#d97706", "#d97706", "#d97706", _, "#92400e", _, _, _, _),
-  row(_, _, _, _, _, _, "#d97706", "#d97706", "#d97706", "#d97706", _, _, _, _, _, _),
-  row(_, _, _, _, _, _, "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", _, _, _, _, _, _),
-  row(_, _, _, _, _, "#3f3f46", "#3f3f46", _, _, "#3f3f46", "#3f3f46", _, _, _, _, _),
-  row(_, _, _, _, _, "#27272a", "#27272a", _, _, "#27272a", "#27272a", _, _, _, _, _),
-];
-
-const CLAUDE_WALK_DOWN_1: SpriteFrame = CLAUDE_IDLE_DOWN.map((r, i) => {
-  if (i === 14) return row(_, _, _, _, _, _, "#3f3f46", "#3f3f46", _, "#3f3f46", "#3f3f46", _, _, _, _, _);
-  if (i === 15) return row(_, _, _, _, _, _, "#27272a", "#27272a", _, "#27272a", "#27272a", _, _, _, _, _);
-  return r;
-});
-
-const CLAUDE_TYPING: SpriteFrame = CLAUDE_IDLE_DOWN.map((r, i) => {
-  if (i === 10) return row(_, _, _, "#92400e", "#92400e", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#92400e", "#92400e", _, _, _);
-  if (i === 11) return row(_, _, "#92400e", "#92400e", _, "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", "#d97706", _, "#92400e", "#92400e", _, _);
-  return r;
-});
-
-// --- Codex CLI (green, glasses) ---
-const CODEX_IDLE_DOWN: SpriteFrame = [
-  row(_, _, _, _, _, _, "#333", "#333", "#333", "#333", _, _, _, _, _, _),
-  row(_, _, _, _, _, "#333", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#333", _, _, _, _, _),
-  row(_, _, _, _, "#333", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#333", _, _, _, _),
-  row(_, _, _, _, "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#22c55e", _, _, _, _),
-  row(_, _, _, _, "#22c55e", "#bbf7d0", "#bbf7d0", "#22c55e", "#22c55e", "#bbf7d0", "#bbf7d0", "#22c55e", _, _, _, _),
-  row(_, _, _, "#fff", "#22c55e", "#fff", "#1a1a1a", "#bbf7d0", "#bbf7d0", "#fff", "#1a1a1a", "#22c55e", "#fff", _, _, _),
-  row(_, _, _, "#fff", "#22c55e", "#fff", "#fff", "#22c55e", "#22c55e", "#fff", "#fff", "#22c55e", "#fff", _, _, _),
-  row(_, _, _, _, _, "#22c55e", "#22c55e", "#166534", "#166534", "#22c55e", "#22c55e", _, _, _, _, _),
-  row(_, _, _, _, _, _, "#166534", "#166534", "#166534", "#166534", _, _, _, _, _, _),
-  row(_, _, _, _, _, "#166534", "#166534", "#22c55e", "#22c55e", "#166534", "#166534", _, _, _, _, _),
-  row(_, _, _, _, "#166534", "#166534", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#166534", "#166534", _, _, _, _),
-  row(_, _, _, _, "#166534", _, "#22c55e", "#22c55e", "#22c55e", "#22c55e", _, "#166534", _, _, _, _),
-  row(_, _, _, _, _, _, "#22c55e", "#22c55e", "#22c55e", "#22c55e", _, _, _, _, _, _),
-  row(_, _, _, _, _, _, "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", _, _, _, _, _, _),
-  row(_, _, _, _, _, "#3f3f46", "#3f3f46", _, _, "#3f3f46", "#3f3f46", _, _, _, _, _),
-  row(_, _, _, _, _, "#27272a", "#27272a", _, _, "#27272a", "#27272a", _, _, _, _, _),
-];
-
-const CODEX_WALK_DOWN_1: SpriteFrame = CODEX_IDLE_DOWN.map((r, i) => {
-  if (i === 14) return row(_, _, _, _, _, _, "#3f3f46", "#3f3f46", _, "#3f3f46", "#3f3f46", _, _, _, _, _);
-  if (i === 15) return row(_, _, _, _, _, _, "#27272a", "#27272a", _, "#27272a", "#27272a", _, _, _, _, _);
-  return r;
-});
-
-const CODEX_TYPING: SpriteFrame = CODEX_IDLE_DOWN.map((r, i) => {
-  if (i === 10) return row(_, _, _, "#166534", "#166534", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#166534", "#166534", _, _, _);
-  if (i === 11) return row(_, _, "#166534", "#166534", _, "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#22c55e", "#22c55e", _, "#166534", "#166534", _, _);
-  return r;
-});
-
-// --- Gemini CLI (blue, star) ---
-const GEMINI_IDLE_DOWN: SpriteFrame = [
-  row(_, _, _, _, _, _, _, "#fbbf24", _, _, _, _, _, _, _, _),
-  row(_, _, _, _, _, _, "#fbbf24", "#fbbf24", "#fbbf24", _, _, _, _, _, _, _),
-  row(_, _, _, _, _, "#333", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#333", _, _, _, _, _),
-  row(_, _, _, _, "#333", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#333", _, _, _, _),
-  row(_, _, _, _, "#3b82f6", "#bfdbfe", "#bfdbfe", "#3b82f6", "#3b82f6", "#bfdbfe", "#bfdbfe", "#3b82f6", _, _, _, _),
-  row(_, _, _, _, "#3b82f6", "#bfdbfe", "#1a1a1a", "#bfdbfe", "#bfdbfe", "#bfdbfe", "#1a1a1a", "#bfdbfe", "#3b82f6", _, _, _),
-  row(_, _, _, _, "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", _, _, _, _),
-  row(_, _, _, _, _, "#3b82f6", "#3b82f6", "#1e40af", "#1e40af", "#3b82f6", "#3b82f6", _, _, _, _, _),
-  row(_, _, _, _, _, _, "#1e40af", "#1e40af", "#1e40af", "#1e40af", _, _, _, _, _, _),
-  row(_, _, _, _, _, "#1e40af", "#1e40af", "#3b82f6", "#3b82f6", "#1e40af", "#1e40af", _, _, _, _, _),
-  row(_, _, _, _, "#1e40af", "#1e40af", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#1e40af", "#1e40af", _, _, _, _),
-  row(_, _, _, _, "#1e40af", _, "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", _, "#1e40af", _, _, _, _),
-  row(_, _, _, _, _, _, "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", _, _, _, _, _, _),
-  row(_, _, _, _, _, _, "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", _, _, _, _, _, _),
-  row(_, _, _, _, _, "#3f3f46", "#3f3f46", _, _, "#3f3f46", "#3f3f46", _, _, _, _, _),
-  row(_, _, _, _, _, "#27272a", "#27272a", _, _, "#27272a", "#27272a", _, _, _, _, _),
-];
-
-const GEMINI_WALK_DOWN_1: SpriteFrame = GEMINI_IDLE_DOWN.map((r, i) => {
-  if (i === 14) return row(_, _, _, _, _, _, "#3f3f46", "#3f3f46", _, "#3f3f46", "#3f3f46", _, _, _, _, _);
-  if (i === 15) return row(_, _, _, _, _, _, "#27272a", "#27272a", _, "#27272a", "#27272a", _, _, _, _, _);
-  return r;
-});
-
-const GEMINI_TYPING: SpriteFrame = GEMINI_IDLE_DOWN.map((r, i) => {
-  if (i === 10) return row(_, _, _, "#1e40af", "#1e40af", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#1e40af", "#1e40af", _, _, _);
-  if (i === 11) return row(_, _, "#1e40af", "#1e40af", _, "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", "#3b82f6", _, "#1e40af", "#1e40af", _, _);
-  return r;
-});
-
-// --- Telegram Bot (sky blue, paper plane) ---
-const TELEGRAM_IDLE_DOWN: SpriteFrame = [
-  row(_, _, _, _, _, _, _, _, "#e0f2fe", _, _, _, _, _, _, _),
-  row(_, _, _, _, _, _, _, "#e0f2fe", "#38bdf8", "#e0f2fe", _, _, _, _, _, _),
-  row(_, _, _, _, _, "#333", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#333", _, _, _, _, _),
-  row(_, _, _, _, "#333", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#333", _, _, _, _),
-  row(_, _, _, _, "#38bdf8", "#e0f2fe", "#e0f2fe", "#38bdf8", "#38bdf8", "#e0f2fe", "#e0f2fe", "#38bdf8", _, _, _, _),
-  row(_, _, _, _, "#38bdf8", "#e0f2fe", "#1a1a1a", "#e0f2fe", "#e0f2fe", "#e0f2fe", "#1a1a1a", "#e0f2fe", "#38bdf8", _, _, _),
-  row(_, _, _, _, "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", _, _, _, _),
-  row(_, _, _, _, _, "#38bdf8", "#38bdf8", "#0369a1", "#0369a1", "#38bdf8", "#38bdf8", _, _, _, _, _),
-  row(_, _, _, _, _, _, "#0369a1", "#0369a1", "#0369a1", "#0369a1", _, _, _, _, _, _),
-  row(_, _, _, _, _, "#0369a1", "#0369a1", "#38bdf8", "#38bdf8", "#0369a1", "#0369a1", _, _, _, _, _),
-  row(_, _, _, _, "#0369a1", "#0369a1", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#0369a1", "#0369a1", _, _, _, _),
-  row(_, _, _, _, "#0369a1", _, "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", _, "#0369a1", _, _, _, _),
-  row(_, _, _, _, _, _, "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", _, _, _, _, _, _),
-  row(_, _, _, _, _, _, "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", _, _, _, _, _, _),
-  row(_, _, _, _, _, "#3f3f46", "#3f3f46", _, _, "#3f3f46", "#3f3f46", _, _, _, _, _),
-  row(_, _, _, _, _, "#27272a", "#27272a", _, _, "#27272a", "#27272a", _, _, _, _, _),
-];
-
-const TELEGRAM_WALK_DOWN_1: SpriteFrame = TELEGRAM_IDLE_DOWN.map((r, i) => {
-  if (i === 14) return row(_, _, _, _, _, _, "#3f3f46", "#3f3f46", _, "#3f3f46", "#3f3f46", _, _, _, _, _);
-  if (i === 15) return row(_, _, _, _, _, _, "#27272a", "#27272a", _, "#27272a", "#27272a", _, _, _, _, _);
-  return r;
-});
-
-const TELEGRAM_TYPING: SpriteFrame = TELEGRAM_IDLE_DOWN.map((r, i) => {
-  if (i === 10) return row(_, _, _, "#0369a1", "#0369a1", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#0369a1", "#0369a1", _, _, _);
-  if (i === 11) return row(_, _, "#0369a1", "#0369a1", _, "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", "#38bdf8", _, "#0369a1", "#0369a1", _, _);
-  return r;
-});
-
-// Build sprite sets with simplified directions (mirror left/right)
-function buildSpriteSet(
-  idle: SpriteFrame,
-  walk: SpriteFrame,
-  typing: SpriteFrame,
-) {
-  return {
-    idle: { down: [idle], up: [idle], left: [idle], right: [idle] },
-    walking: { down: [idle, walk], up: [idle, walk], left: [idle, walk], right: [idle, walk] },
-    typing: [typing, idle],
-    offline: [idle],
-  };
-}
-
-export const CHARACTER_SPRITES: Record<string, ReturnType<typeof buildSpriteSet>> = {
-  claude_code: buildSpriteSet(CLAUDE_IDLE_DOWN, CLAUDE_WALK_DOWN_1, CLAUDE_TYPING),
-  codex_cli: buildSpriteSet(CODEX_IDLE_DOWN, CODEX_WALK_DOWN_1, CODEX_TYPING),
-  gemini_cli: buildSpriteSet(GEMINI_IDLE_DOWN, GEMINI_WALK_DOWN_1, GEMINI_TYPING),
-  telegram_bot: buildSpriteSet(TELEGRAM_IDLE_DOWN, TELEGRAM_WALK_DOWN_1, TELEGRAM_TYPING),
+type ActionTemplates = {
+  walking: [SpriteTemplate, SpriteTemplate, SpriteTemplate];
+  typing: [SpriteTemplate, SpriteTemplate];
+  reading: [SpriteTemplate, SpriteTemplate];
+  idle: [SpriteTemplate];
 };
 
-// ============================================================
-// FURNITURE SPRITES (variable size, stored as 16x16 tiles)
-// ============================================================
+export type SpriteTemplatesByDirection = Record<"down" | "up" | "right", ActionTemplates>;
+
+function toTemplate(rows: string[]): SpriteTemplate {
+  return rows.map((row) => row.split(""));
+}
+
+function flipTemplate(template: SpriteTemplate): SpriteTemplate {
+  return template.map((row) => [...row].reverse());
+}
+
+function replaceRows(base: SpriteTemplate, updates: Record<number, string>): SpriteTemplate {
+  return base.map((row, index) => {
+    const next = updates[index];
+    return next ? next.split("") : [...row];
+  });
+}
+
+const DOWN_WALK_1 = toTemplate([
+  "________________",
+  "_____HHHHHH_____",
+  "____HHHHHHHH____",
+  "____HHKKKKHH____",
+  "___HHKKEEKKHH___",
+  "___HKKKKKKKKH___",
+  "____HHKKKKHH____",
+  "_____SSSSSS_____",
+  "____SSSSSSSS____",
+  "___SSSKKKKSSS___",
+  "___SSSSSSSSSS___",
+  "___S__SSSS__S___",
+  "______PPPP______",
+  "_____PPPPPP_____",
+  "_____PP__PP_____",
+  "_____OO__OO_____",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+]);
+
+const DOWN_WALK_2 = replaceRows(DOWN_WALK_1, {
+  14: "_____P___PP_____",
+  15: "_____O___OO_____",
+});
+
+const DOWN_WALK_3 = replaceRows(DOWN_WALK_1, {
+  14: "_____PP___P_____",
+  15: "_____OO___O_____",
+});
+
+const DOWN_TYPING_1 = replaceRows(DOWN_WALK_1, {
+  10: "__SSSSSSSSSSSS__",
+  11: "__SKKSSSSSSKKS__",
+  12: "_____PPPPPP_____",
+});
+
+const DOWN_TYPING_2 = replaceRows(DOWN_TYPING_1, {
+  10: "__SSSSSSSSSSS___",
+  11: "___KKSSSSSSKK___",
+});
+
+const DOWN_READING_1 = replaceRows(DOWN_WALK_1, {
+  8: "___SSS__SSSS____",
+  9: "___SSSKKSSKSS___",
+  10: "___SSSSSSSSSS___",
+});
+
+const DOWN_READING_2 = replaceRows(DOWN_READING_1, {
+  7: "_____SSSSS______",
+  8: "____SSS__SSS____",
+  9: "___SSKKSSSKSS___",
+});
+
+const DOWN_IDLE = replaceRows(DOWN_WALK_1, {
+  14: "_____PPPPPP_____",
+  15: "_____OO__OO_____",
+});
+
+const UP_WALK_1 = toTemplate([
+  "________________",
+  "_____HHHHHH_____",
+  "____HHHHHHHH____",
+  "____HHKKKKHH____",
+  "___HHKKKKKKHH___",
+  "___HKKKKKKKKH___",
+  "____HHKKKKHH____",
+  "_____SSSSSS_____",
+  "____SSSSSSSS____",
+  "___SSSSSSSSSS___",
+  "___SSSKKKKSSS___",
+  "___S__SSSS__S___",
+  "______PPPP______",
+  "_____PPPPPP_____",
+  "_____PP__PP_____",
+  "_____OO__OO_____",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+]);
+
+const UP_WALK_2 = replaceRows(UP_WALK_1, {
+  14: "_____P___PP_____",
+  15: "_____O___OO_____",
+});
+
+const UP_WALK_3 = replaceRows(UP_WALK_1, {
+  14: "_____PP___P_____",
+  15: "_____OO___O_____",
+});
+
+const UP_TYPING_1 = replaceRows(UP_WALK_1, {
+  9: "__SSSSSSSSSSSS__",
+  10: "__SKKSSSSSSKKS__",
+});
+
+const UP_TYPING_2 = replaceRows(UP_TYPING_1, {
+  9: "__SSSSSSSSSSS___",
+  10: "___KKSSSSSSKK___",
+});
+
+const UP_READING_1 = replaceRows(UP_WALK_1, {
+  7: "___SSS__SSSS____",
+  8: "___SSSKKSSKSS___",
+});
+
+const UP_READING_2 = replaceRows(UP_READING_1, {
+  6: "_____SSSSS______",
+  7: "____SSS__SSS____",
+  8: "___SSKKSSSKSS___",
+});
+
+const UP_IDLE = replaceRows(UP_WALK_1, {
+  14: "_____PPPPPP_____",
+  15: "_____OO__OO_____",
+});
+
+const RIGHT_WALK_1 = toTemplate([
+  "________________",
+  "______HHHH______",
+  "_____HHHHHH_____",
+  "_____HKKKKH_____",
+  "____HHKKEEKHH___",
+  "____HKKKKKKKH___",
+  "_____HKKKKHH____",
+  "_____SSSSSS_____",
+  "____SSSSSSSS____",
+  "___SSSSKKKSSS___",
+  "___SSSSSSSSSS___",
+  "___SS__SS__SS___",
+  "______PPPP______",
+  "_____PPPPPP_____",
+  "_____PP__PP_____",
+  "_____OO__OO_____",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+  "________________",
+]);
+
+const RIGHT_WALK_2 = replaceRows(RIGHT_WALK_1, {
+  14: "_____P___PP_____",
+  15: "_____O___OO_____",
+});
+
+const RIGHT_WALK_3 = replaceRows(RIGHT_WALK_1, {
+  14: "_____PP___P_____",
+  15: "_____OO___O_____",
+});
+
+const RIGHT_TYPING_1 = replaceRows(RIGHT_WALK_1, {
+  9: "____SSSSSSSSSS__",
+  10: "____SSSSSSSKKS__",
+  11: "_____SSSSSSKK___",
+});
+
+const RIGHT_TYPING_2 = replaceRows(RIGHT_TYPING_1, {
+  10: "_____SSSSSSKKS__",
+  11: "____SSSSSSSKK___",
+});
+
+const RIGHT_READING_1 = replaceRows(RIGHT_WALK_1, {
+  7: "____SSSSS_______",
+  8: "___SSSSSKKSS____",
+  9: "___SSSSSSSSS____",
+});
+
+const RIGHT_READING_2 = replaceRows(RIGHT_READING_1, {
+  6: "_____SSS________",
+  7: "____SSSSS_______",
+  8: "___SSSSKKSSS____",
+});
+
+const RIGHT_IDLE = replaceRows(RIGHT_WALK_1, {
+  14: "_____PPPPPP_____",
+  15: "_____OO__OO_____",
+});
+
+export const SPRITE_TEMPLATES: SpriteTemplatesByDirection = {
+  down: {
+    walking: [DOWN_WALK_1, DOWN_WALK_2, DOWN_WALK_3],
+    typing: [DOWN_TYPING_1, DOWN_TYPING_2],
+    reading: [DOWN_READING_1, DOWN_READING_2],
+    idle: [DOWN_IDLE],
+  },
+  up: {
+    walking: [UP_WALK_1, UP_WALK_2, UP_WALK_3],
+    typing: [UP_TYPING_1, UP_TYPING_2],
+    reading: [UP_READING_1, UP_READING_2],
+    idle: [UP_IDLE],
+  },
+  right: {
+    walking: [RIGHT_WALK_1, RIGHT_WALK_2, RIGHT_WALK_3],
+    typing: [RIGHT_TYPING_1, RIGHT_TYPING_2],
+    reading: [RIGHT_READING_1, RIGHT_READING_2],
+    idle: [RIGHT_IDLE],
+  },
+};
+
+export function resolveTemplate(template: SpriteTemplate, palette: CharacterPalette): SpriteFrame {
+  const colorMap: Record<string, string | null> = {
+    _: null,
+    H: palette.hair,
+    K: palette.skin,
+    S: palette.shirt,
+    P: palette.pants,
+    O: palette.shoes,
+    E: palette.eyes,
+  };
+
+  return template.map((row) =>
+    row.map((pixel) => {
+      if (pixel in colorMap) {
+        return colorMap[pixel] ?? null;
+      }
+      return null;
+    }),
+  );
+}
+
+const TRANSPARENT = null;
+
+function colorRow(...pixels: (string | null)[]): (string | null)[] {
+  return pixels;
+}
 
 export const FURNITURE_SPRITES: Record<string, SpriteFrame> = {
   desk: [
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", _, _),
-    row(_, _, "#52525b", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#52525b", _, _),
-    row(_, _, "#52525b", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#52525b", _, _),
-    row(_, _, "#52525b", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#52525b", _, _),
-    row(_, _, "#52525b", _, _, _, _, _, _, _, _, _, _, "#52525b", _, _),
-    row(_, _, "#52525b", _, _, _, _, _, _, _, _, _, _, "#52525b", _, _),
-    row(_, _, "#52525b", _, _, _, _, _, _, _, _, _, _, "#52525b", _, _),
-    row(_, _, "#3f3f46", _, _, _, _, _, _, _, _, _, _, "#3f3f46", _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#6b7280", "#6b7280", "#6b7280", "#6b7280", "#6b7280", "#6b7280", "#6b7280", "#6b7280", "#6b7280", "#6b7280", "#6b7280", "#6b7280", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#8b8b95", "#8b8b95", "#8b8b95", "#8b8b95", "#8b8b95", "#8b8b95", "#8b8b95", "#8b8b95", "#8b8b95", "#8b8b95", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#3f3f46", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#3f3f46", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#3f3f46", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#3f3f46", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#3f3f46", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#3f3f46", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#27272a", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#27272a", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
   ],
   chair: [
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", _, _, _, _, _),
-    row(_, _, _, _, _, "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", _, _, _, _, _),
-    row(_, _, _, _, _, "#71717a", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#71717a", _, _, _, _, _),
-    row(_, _, _, _, _, "#71717a", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#71717a", _, _, _, _, _),
-    row(_, _, _, _, _, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", _, _, _, _, _),
-    row(_, _, _, _, _, _, "#3f3f46", _, _, "#3f3f46", _, _, _, _, _, _),
-    row(_, _, _, _, _, _, "#3f3f46", _, _, "#3f3f46", _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#71717a", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#71717a", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#3f3f46", TRANSPARENT, TRANSPARENT, "#3f3f46", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#3f3f46", TRANSPARENT, TRANSPARENT, "#3f3f46", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
   ],
   plant: [
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, "#22c55e", "#22c55e", _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, "#22c55e", "#4ade80", "#4ade80", "#22c55e", _, _, _, _, _, _),
-    row(_, _, _, _, _, "#22c55e", "#4ade80", "#4ade80", "#4ade80", "#4ade80", "#22c55e", _, _, _, _, _),
-    row(_, _, _, _, "#16a34a", "#22c55e", "#4ade80", "#22c55e", "#22c55e", "#4ade80", "#22c55e", "#16a34a", _, _, _, _),
-    row(_, _, _, _, _, "#16a34a", "#22c55e", "#4ade80", "#4ade80", "#22c55e", "#16a34a", _, _, _, _, _),
-    row(_, _, _, _, _, _, "#16a34a", "#22c55e", "#22c55e", "#16a34a", _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, "#78350f", "#78350f", _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, "#78350f", "#78350f", _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, "#92400e", "#92400e", "#92400e", "#92400e", _, _, _, _, _, _),
-    row(_, _, _, _, _, "#78350f", "#92400e", "#a16207", "#a16207", "#92400e", "#78350f", _, _, _, _, _),
-    row(_, _, _, _, _, _, "#78350f", "#78350f", "#78350f", "#78350f", _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#22c55e", "#22c55e", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#22c55e", "#4ade80", "#4ade80", "#22c55e", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#22c55e", "#4ade80", "#4ade80", "#4ade80", "#4ade80", "#22c55e", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#16a34a", "#22c55e", "#4ade80", "#22c55e", "#22c55e", "#4ade80", "#22c55e", "#16a34a", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#16a34a", "#22c55e", "#4ade80", "#4ade80", "#22c55e", "#16a34a", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#16a34a", "#22c55e", "#22c55e", "#16a34a", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#78350f", "#78350f", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#78350f", "#92400e", "#a16207", "#a16207", "#92400e", "#78350f", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#78350f", "#78350f", "#78350f", "#78350f", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
   ],
   monitor: [
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", _, _, _),
-    row(_, _, _, "#1a1a1a", "#0f172a", "#1e3a5f", "#0f172a", "#1e3a5f", "#0f172a", "#1e3a5f", "#0f172a", "#1e3a5f", "#1a1a1a", _, _, _),
-    row(_, _, _, "#1a1a1a", "#1e3a5f", "#22d3ee", "#1e3a5f", "#1e3a5f", "#22d3ee", "#1e3a5f", "#1e3a5f", "#0f172a", "#1a1a1a", _, _, _),
-    row(_, _, _, "#1a1a1a", "#0f172a", "#1e3a5f", "#22d3ee", "#1e3a5f", "#1e3a5f", "#1e3a5f", "#22d3ee", "#1e3a5f", "#1a1a1a", _, _, _),
-    row(_, _, _, "#1a1a1a", "#1e3a5f", "#1e3a5f", "#1e3a5f", "#22d3ee", "#1e3a5f", "#22d3ee", "#1e3a5f", "#0f172a", "#1a1a1a", _, _, _),
-    row(_, _, _, "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", "#1a1a1a", _, _, _),
-    row(_, _, _, _, _, _, _, "#3f3f46", "#3f3f46", _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, "#111827", "#111827", "#111827", "#111827", "#111827", "#111827", "#111827", "#111827", "#111827", "#111827", TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, "#111827", "#0f172a", "#1e3a5f", "#0f172a", "#1e3a5f", "#0f172a", "#1e3a5f", "#0f172a", "#1e3a5f", "#111827", TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, "#111827", "#1e3a5f", "#22d3ee", "#1e3a5f", "#1e3a5f", "#22d3ee", "#1e3a5f", "#1e3a5f", "#0f172a", "#111827", TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, "#111827", "#0f172a", "#1e3a5f", "#22d3ee", "#1e3a5f", "#1e3a5f", "#1e3a5f", "#22d3ee", "#1e3a5f", "#111827", TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, "#111827", "#1e3a5f", "#1e3a5f", "#1e3a5f", "#22d3ee", "#1e3a5f", "#22d3ee", "#1e3a5f", "#0f172a", "#111827", TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, "#111827", "#111827", "#111827", "#111827", "#111827", "#111827", "#111827", "#111827", "#111827", "#111827", TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#3f3f46", "#3f3f46", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
   ],
   bookshelf: [
-    row(_, _, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", _, _),
-    row(_, _, "#52525b", "#78350f", "#b91c1c", "#1e40af", "#78350f", "#b91c1c", "#1e40af", "#78350f", "#b91c1c", "#1e40af", "#78350f", "#52525b", _, _),
-    row(_, _, "#52525b", "#92400e", "#dc2626", "#2563eb", "#92400e", "#dc2626", "#2563eb", "#92400e", "#dc2626", "#2563eb", "#92400e", "#52525b", _, _),
-    row(_, _, "#52525b", "#92400e", "#dc2626", "#2563eb", "#92400e", "#dc2626", "#2563eb", "#92400e", "#dc2626", "#2563eb", "#92400e", "#52525b", _, _),
-    row(_, _, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", _, _),
-    row(_, _, "#52525b", "#166534", "#a16207", "#166534", "#a16207", "#166534", "#a16207", "#166534", "#a16207", "#166534", "#a16207", "#52525b", _, _),
-    row(_, _, "#52525b", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#52525b", _, _),
-    row(_, _, "#52525b", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#52525b", _, _),
-    row(_, _, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", _, _),
-    row(_, _, "#52525b", "#7c3aed", "#7c3aed", "#0891b2", "#0891b2", "#7c3aed", "#0891b2", "#7c3aed", "#0891b2", "#7c3aed", "#0891b2", "#52525b", _, _),
-    row(_, _, "#52525b", "#8b5cf6", "#8b5cf6", "#22d3ee", "#22d3ee", "#8b5cf6", "#22d3ee", "#8b5cf6", "#22d3ee", "#8b5cf6", "#22d3ee", "#52525b", _, _),
-    row(_, _, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#78350f", "#b91c1c", "#1e40af", "#78350f", "#b91c1c", "#1e40af", "#78350f", "#b91c1c", "#1e40af", "#78350f", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#92400e", "#dc2626", "#2563eb", "#92400e", "#dc2626", "#2563eb", "#92400e", "#dc2626", "#2563eb", "#92400e", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#92400e", "#dc2626", "#2563eb", "#92400e", "#dc2626", "#2563eb", "#92400e", "#dc2626", "#2563eb", "#92400e", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#166534", "#a16207", "#166534", "#a16207", "#166534", "#a16207", "#166534", "#a16207", "#166534", "#a16207", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#22c55e", "#d97706", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#7c3aed", "#7c3aed", "#0891b2", "#0891b2", "#7c3aed", "#0891b2", "#7c3aed", "#0891b2", "#7c3aed", "#0891b2", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#8b5cf6", "#8b5cf6", "#22d3ee", "#22d3ee", "#8b5cf6", "#22d3ee", "#8b5cf6", "#22d3ee", "#8b5cf6", "#22d3ee", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", "#52525b", TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
   ],
   water_cooler: [
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, "#bfdbfe", "#bfdbfe", "#bfdbfe", "#bfdbfe", _, _, _, _, _, _),
-    row(_, _, _, _, _, "#93c5fd", "#bfdbfe", "#e0f2fe", "#e0f2fe", "#bfdbfe", "#93c5fd", _, _, _, _, _),
-    row(_, _, _, _, _, "#93c5fd", "#bfdbfe", "#e0f2fe", "#e0f2fe", "#bfdbfe", "#93c5fd", _, _, _, _, _),
-    row(_, _, _, _, _, "#93c5fd", "#93c5fd", "#bfdbfe", "#bfdbfe", "#93c5fd", "#93c5fd", _, _, _, _, _),
-    row(_, _, _, _, _, "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", _, _, _, _, _),
-    row(_, _, _, _, _, "#71717a", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#71717a", _, _, _, _, _),
-    row(_, _, _, _, _, "#71717a", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#71717a", _, _, _, _, _),
-    row(_, _, _, _, _, "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", _, _, _, _, _),
-    row(_, _, _, _, _, _, "#52525b", _, _, "#52525b", _, _, _, _, _, _),
-    row(_, _, _, _, _, _, "#52525b", _, _, "#52525b", _, _, _, _, _, _),
-    row(_, _, _, _, _, "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
-    row(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#bfdbfe", "#bfdbfe", "#bfdbfe", "#bfdbfe", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#93c5fd", "#bfdbfe", "#e0f2fe", "#e0f2fe", "#bfdbfe", "#93c5fd", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#93c5fd", "#bfdbfe", "#e0f2fe", "#e0f2fe", "#bfdbfe", "#93c5fd", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#93c5fd", "#93c5fd", "#bfdbfe", "#bfdbfe", "#93c5fd", "#93c5fd", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#71717a", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#71717a", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#71717a", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#a1a1aa", "#71717a", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", "#71717a", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#52525b", TRANSPARENT, TRANSPARENT, "#52525b", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#52525b", TRANSPARENT, TRANSPARENT, "#52525b", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", "#3f3f46", TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+    colorRow(TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT, TRANSPARENT),
   ],
 };
+
+export const CHARACTER_SPRITES = {
+  idle: {
+    down: SPRITE_TEMPLATES.down.idle.map((template) => template),
+    up: SPRITE_TEMPLATES.up.idle.map((template) => template),
+    right: SPRITE_TEMPLATES.right.idle.map((template) => template),
+    left: SPRITE_TEMPLATES.right.idle.map((template) => flipTemplate(template)),
+  },
+  walking: {
+    down: SPRITE_TEMPLATES.down.walking.map((template) => template),
+    up: SPRITE_TEMPLATES.up.walking.map((template) => template),
+    right: SPRITE_TEMPLATES.right.walking.map((template) => template),
+    left: SPRITE_TEMPLATES.right.walking.map((template) => flipTemplate(template)),
+  },
+  typing: {
+    down: SPRITE_TEMPLATES.down.typing.map((template) => template),
+    up: SPRITE_TEMPLATES.up.typing.map((template) => template),
+    right: SPRITE_TEMPLATES.right.typing.map((template) => template),
+    left: SPRITE_TEMPLATES.right.typing.map((template) => flipTemplate(template)),
+  },
+  reading: {
+    down: SPRITE_TEMPLATES.down.reading.map((template) => template),
+    up: SPRITE_TEMPLATES.up.reading.map((template) => template),
+    right: SPRITE_TEMPLATES.right.reading.map((template) => template),
+    left: SPRITE_TEMPLATES.right.reading.map((template) => flipTemplate(template)),
+  },
+  offline: {
+    down: SPRITE_TEMPLATES.down.idle.map((template) => template),
+    up: SPRITE_TEMPLATES.up.idle.map((template) => template),
+    right: SPRITE_TEMPLATES.right.idle.map((template) => template),
+    left: SPRITE_TEMPLATES.right.idle.map((template) => flipTemplate(template)),
+  },
+} as const satisfies Record<string, Record<Direction, SpriteTemplate[]>>;

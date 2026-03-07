@@ -1,16 +1,16 @@
-import { FRAME_INTERVAL, MAX_DELTA } from "../constants";
+import { MAX_DELTA } from "../constants";
 
-export type UpdateFn = (deltaMs: number) => void;
+export type UpdateFn = (deltaSec: number) => void;
 export type RenderFn = () => void;
 
 /**
- * Create a game loop throttled to TARGET_FPS.
+ * Create a game loop using requestAnimationFrame.
+ * Passes delta in **seconds** to update, capped by MAX_DELTA.
  * Returns a cleanup function to stop the loop.
  */
 export function createGameLoop(update: UpdateFn, renderFrame: RenderFn): () => void {
   let rafId = 0;
   let lastTime = 0;
-  let accumulator = 0;
   let running = true;
 
   function loop(timestamp: number) {
@@ -20,22 +20,15 @@ export function createGameLoop(update: UpdateFn, renderFrame: RenderFn): () => v
       lastTime = timestamp;
     }
 
-    let delta = timestamp - lastTime;
+    let deltaSec = (timestamp - lastTime) / 1000;
     lastTime = timestamp;
 
     // Cap delta for background tab recovery
-    if (delta > MAX_DELTA) {
-      delta = MAX_DELTA;
+    if (deltaSec > MAX_DELTA) {
+      deltaSec = MAX_DELTA;
     }
 
-    accumulator += delta;
-
-    // Fixed timestep updates
-    while (accumulator >= FRAME_INTERVAL) {
-      update(FRAME_INTERVAL);
-      accumulator -= FRAME_INTERVAL;
-    }
-
+    update(deltaSec);
     renderFrame();
     rafId = requestAnimationFrame(loop);
   }

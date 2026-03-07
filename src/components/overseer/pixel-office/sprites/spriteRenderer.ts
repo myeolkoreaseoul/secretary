@@ -1,5 +1,5 @@
 import type { SpriteFrame } from "../types";
-import { SPRITE_SIZE, OFFLINE_DESATURATION, OFFLINE_GRAY_OFFSET } from "../constants";
+import { SPRITE_WIDTH, SPRITE_HEIGHT, OFFLINE_DESATURATION, OFFLINE_GRAY_OFFSET } from "../constants";
 
 /**
  * Draw a sprite frame onto the canvas at the given position.
@@ -42,7 +42,7 @@ export function drawSpriteOnTile(
   tileSize: number,
   offline = false,
 ): void {
-  const spriteScale = tileSize / SPRITE_SIZE;
+  const spriteScale = tileSize / SPRITE_WIDTH;
   const px = tileX * tileSize;
   const py = tileY * tileSize;
   drawSprite(ctx, frame, px, py, spriteScale, offline);
@@ -50,6 +50,7 @@ export function drawSpriteOnTile(
 
 /**
  * Draw sprite at pixel position (for characters with sub-tile movement).
+ * Accounts for SPRITE_HEIGHT > SPRITE_WIDTH by offsetting Y upward.
  */
 export function drawSpriteAtPixel(
   ctx: CanvasRenderingContext2D,
@@ -59,8 +60,10 @@ export function drawSpriteAtPixel(
   tileSize: number,
   offline = false,
 ): void {
-  const spriteScale = tileSize / SPRITE_SIZE;
-  drawSprite(ctx, frame, px, py, spriteScale, offline);
+  const spriteScale = tileSize / SPRITE_WIDTH;
+  // Offset Y so character feet align with tile position
+  const heightDiff = (frame.length - SPRITE_WIDTH) * spriteScale;
+  drawSprite(ctx, frame, px, py - heightDiff, spriteScale, offline);
 }
 
 /** Convert a hex color to desaturated grayscale for offline state */
@@ -72,7 +75,6 @@ function desaturate(hex: string): string {
   const nr = Math.round(r * OFFLINE_DESATURATION + OFFLINE_GRAY_OFFSET * (1 - OFFLINE_DESATURATION));
   const ng = Math.round(g * OFFLINE_DESATURATION + OFFLINE_GRAY_OFFSET * (1 - OFFLINE_DESATURATION));
   const nb = Math.round(b * OFFLINE_DESATURATION + OFFLINE_GRAY_OFFSET * (1 - OFFLINE_DESATURATION));
-  // Blend toward gray
   const fr = Math.round(nr * 0.5 + gray * 0.5);
   const fg = Math.round(ng * 0.5 + gray * 0.5);
   const fb = Math.round(nb * 0.5 + gray * 0.5);
