@@ -216,8 +216,9 @@ async def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
 
     success, output = await _invoke_claude(prompt, chat_id, session_id, timeout, model)
 
-    # If resume failed, retry without session
-    if not success and session_id:
+    # Retry without session only if failure is resume-related
+    _RESUME_ERRORS = ("invalid session", "session not found", "resume", "no such session")
+    if not success and session_id and any(e in output.lower() for e in _RESUME_ERRORS):
         log.warning("Resume failed for chat_id=%s, retrying without session", chat_id)
         clear_session(chat_id)
         success, output = await _invoke_claude(prompt, chat_id, session_id=None, timeout=timeout, model=model)
@@ -243,6 +244,7 @@ async def _invoke_claude(
         "--mcp-config", str(MCP_CONFIG),
         "--append-system-prompt-file", str(system_prompt),
         "--output-format", "stream-json",
+        "--verbose",
     ]
     if session_id:
         cmd.extend(["--resume", session_id])
@@ -271,8 +273,9 @@ async def _invoke_claude(
         first_text_sent = False
         result_text = ""
         new_session_id = None
+        stderr_chunks: list[str] = []
 
-        async def _read_stream():
+        async def _read_stdout():
             nonlocal first_text_sent, result_text, new_session_id
             async for raw_line in proc.stdout:
                 line = raw_line.decode().strip()
@@ -298,7 +301,14 @@ async def _invoke_claude(
                     result_text = event.get("result", result_text)
                     new_session_id = event.get("session_id")
 
-        await asyncio.wait_for(_read_stream(), timeout=timeout)
+        async def _drain_stderr():
+            async for raw_line in proc.stderr:
+                stderr_chunks.append(raw_line.decode())
+
+        await asyncio.wait_for(
+            asyncio.gather(_read_stdout(), _drain_stderr()),
+            timeout=timeout,
+        )
         await proc.wait()
 
         if new_session_id:
@@ -309,7 +319,7 @@ async def _invoke_claude(
             log.info("Claude CLI completed successfully")
             return True, result_text
 
-        stderr = (await proc.stderr.read()).decode()
+        stderr = "".join(stderr_chunks)
         log.warning("Claude CLI failed (code=%d): stderr=%s", proc.returncode, stderr[:500])
         return False, stderr[:500] or f"exit_code={proc.returncode}"
 
@@ -317,6 +327,7 @@ async def _invoke_claude(
         log.error("Claude CLI timed out after %ds", timeout)
         try:
             proc.kill()
+            await proc.wait()
         except Exception:
             pass
         return False, "timeout"

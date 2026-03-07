@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { message } = body;
 
-    if (!message || typeof message !== "string") {
+    if (!message || typeof message !== "string" || !message.trim()) {
       return NextResponse.json(
         { error: "message is required" },
         { status: 400 }
@@ -29,10 +29,11 @@ export async function POST(request: NextRequest) {
     const todoMatch = message.match(/^\/todo\s+(.+)/);
     if (todoMatch) {
       const title = todoMatch[1].trim();
-      await supabaseAdmin
+      const { error: todoError } = await supabaseAdmin
         .from("todos")
         .insert({ title, source: "web-chat", priority: 0 });
 
+      if (todoError) return NextResponse.json({ error: "할일 추가 실패" }, { status: 500 });
       const reply = `할일 추가됨: "${title}"`;
       return NextResponse.json({ reply, action: "todo_added", title });
     }
@@ -47,13 +48,14 @@ export async function POST(request: NextRequest) {
         const now = new Date();
         const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
 
-        await supabaseAdmin.from("activity_logs").insert({
+        const { error: timeError } = await supabaseAdmin.from("activity_logs").insert({
           window_title: category,
           app_name: "manual",
           category,
           recorded_at: start.toISOString(),
         });
 
+        if (timeError) return NextResponse.json({ error: "시간 기록 실패" }, { status: 500 });
         const reply = `${hours}시간 "${category}" 기록 완료`;
         return NextResponse.json({ reply, action: "time_logged", hours, category });
       }

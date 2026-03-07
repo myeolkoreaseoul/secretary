@@ -9,6 +9,7 @@ import ReactMarkdown from "react-markdown";
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  id?: string;
 }
 
 export default function SecretaryChatPage() {
@@ -18,6 +19,7 @@ export default function SecretaryChatPage() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const seenIds = useRef<Set<string>>(new Set());
 
   const ownerChatId = process.env.NEXT_PUBLIC_OWNER_CHAT_ID;
 
@@ -29,11 +31,13 @@ export default function SecretaryChatPage() {
       const msgs: ChatMessage[] = (data.messages || [])
         .slice()
         .reverse()
-        .map((m: { role: string; content: string }) => ({
+        .map((m: { role: string; content: string; id?: string }) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
+          id: m.id,
         }));
-      setMessages(msgs);
+      msgs.forEach(m => { if (m.id) seenIds.current.add(m.id); });
+      setMessages(prev => prev.length > 0 ? [...msgs, ...prev.filter(m => !m.id)] : msgs);
     } catch {
       // ignore
     } finally {
@@ -58,19 +62,18 @@ export default function SecretaryChatPage() {
     filter: `chat_id=eq.${ownerChatId}`,
     onInsert: useCallback((row: Record<string, unknown>) => {
       if (row.role !== 'assistant') return;
+      const id = row.id as string | undefined;
+      if (id && seenIds.current.has(id)) return;
+      if (id) seenIds.current.add(id);
       const content = row.content as string;
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.role === 'assistant' && last.content === content) return prev;
-        return [...prev, { role: 'assistant', content }];
-      });
+      setMessages((prev) => [...prev, { role: 'assistant', content, id }]);
       setLoading(false);
     }, []),
   });
 
   const send = async () => {
     const msg = input.trim();
-    if (!msg || loading) return;
+    if (!msg || loading || historyLoading) return;
 
     setMessages((prev) => [...prev, { role: "user", content: msg }]);
     setInput("");
@@ -82,6 +85,13 @@ export default function SecretaryChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setMessages((prev) => [...prev, { role: "assistant", content: data.error || "오류가 발생했습니다." }]);
+        setLoading(false);
+        return;
+      }
+
       const data = await res.json();
 
       // 슬래시 명령어는 동기 응답 (reply 필드 있음)
