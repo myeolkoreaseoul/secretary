@@ -63,6 +63,11 @@ def run_scan(scan_type: str = "all"):
     """Run scans for all projects."""
     logger.info("=== Overseer scan started (type=%s) ===", scan_type)
 
+    # all 모드에서는 프로젝트 upsert를 먼저 실행 (worker/stage가 project_id를 참조하므로)
+    if scan_type == "all":
+        for proj in PROJECTS:
+            upsert_project(proj)
+
     # Worker scan — 프로젝트 루프 밖에서 독립 실행
     if scan_type in ("all", "worker"):
         workers = scan_workers.scan_all()

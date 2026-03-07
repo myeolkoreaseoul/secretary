@@ -34,7 +34,9 @@ const TYPE_LABEL: Record<string, string> = {
 
 function formatTimeAgo(dateStr: string | null): string {
   if (!dateStr) return "";
-  const diff = Date.now() - new Date(dateStr).getTime();
+  const ts = new Date(dateStr).getTime();
+  if (Number.isNaN(ts)) return "";
+  const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "방금";
   if (mins < 60) return `${mins}분 전`;

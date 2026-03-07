@@ -86,7 +86,7 @@ LEFT JOIN LATERAL (
   WHERE project_id = p.id ORDER BY scanned_at DESC LIMIT 1
 ) s ON true
 LEFT JOIN LATERAL (
-  SELECT count(*)::int AS active_workers
+  SELECT count(DISTINCT ws.worker_id)::int AS active_workers
   FROM overseer_worker_snapshots ws
   WHERE ws.project_id = p.id
     AND ws.status = 'active'

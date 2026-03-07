@@ -4,6 +4,7 @@ import re
 import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 import requests
 
@@ -163,7 +164,7 @@ def scan() -> list[dict]:
 
         # Supabase overseer_projects 직접 PATCH
         try:
-            url = f"{SUPABASE_REST_URL}/overseer_projects?name=eq.{proj['name']}"
+            url = f"{SUPABASE_REST_URL}/overseer_projects?name=eq.{quote(proj['name'], safe='')}"
             headers = {**SUPABASE_HEADERS, "Prefer": "return=minimal"}
             payload = {
                 "current_stage": stage_data.get("current_stage"),

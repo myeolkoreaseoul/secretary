@@ -1,13 +1,21 @@
 """Worker scanner — detects active Claude Code sessions, Telegram bot, and Codex CLI."""
 
 import json
+import re
 import subprocess
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import SUPABASE_REST_URL, SUPABASE_HEADERS, PROJECTS, logger
 
 # ── 상수 ──────────────────────────────────────────────
+# 민감 패턴 (API 키, 토큰, 비밀번호 등)
+_SENSITIVE_RE = re.compile(
+    r'(api[_-]?key|token|secret|password|credential|bearer|authorization)[=:\s]+'
+    r'[^\s,;]{8,}',
+    re.IGNORECASE,
+)
+
 ACTIVE_THRESHOLD_MIN = 30      # 30분 이내 → active
 IDLE_THRESHOLD_MIN = 120       # 2시간 이내 → idle, 이후 → offline
 MACBOOK_SSH = "john@100.126.175.94"
@@ -47,6 +55,18 @@ def _resolve_project(project_path: str | None, project_name: str | None) -> dict
     return None
 
 
+def _sanitize_task(text: str | None) -> str | None:
+    """작업 텍스트에서 민감 정보를 제거하고 50자로 제한."""
+    if not text:
+        return None
+    # 민감 패턴 마스킹
+    text = _SENSITIVE_RE.sub("[REDACTED]", text)
+    # 50자 제한
+    if len(text) > 50:
+        text = text[:47] + "..."
+    return text.strip() or None
+
+
 def _minutes_ago(ts: datetime) -> float:
     """타임스탬프가 몇 분 전인지 계산."""
     now = datetime.now(timezone.utc)
@@ -61,6 +81,37 @@ def _determine_status(minutes: float) -> str:
     elif minutes <= IDLE_THRESHOLD_MIN:
         return "idle"
     return "offline"
+
+
+def _match_project_dir(dir_name: str) -> tuple[str | None, dict | None]:
+    """Claude 프로젝트 디렉토리명을 실제 프로젝트 경로에 매핑.
+
+    디렉토리명 형식: -home-john-projects-secretary (경로의 /를 -로 치환)
+    문제: 폴더명 자체에 하이픈이 포함될 수 있음 (e.g. secretary-overseer)
+    해결: PROJECTS의 실제 경로를 같은 방식으로 인코딩해서 비교.
+    """
+    for proj in PROJECTS:
+        path = proj.get("path")
+        if not path:
+            continue
+        # 실제 경로 → Claude 인코딩: /home/john/projects/secretary → -home-john-projects-secretary
+        encoded = path.replace("/", "-")
+        if encoded.startswith("-"):
+            encoded_clean = encoded  # 이미 - 시작
+        else:
+            encoded_clean = "-" + encoded
+        if dir_name == encoded_clean:
+            return path, proj
+
+    # 매칭 실패 시 fallback: 단순 변환 (경로만 반환, 프로젝트는 None)
+    fallback = dir_name.replace("-", "/", 1)  # 첫 - 만 / 로
+    # 나머지는 그대로 — 완전한 복원은 불가하므로 project_path만 제공
+    fallback_full = dir_name
+    if fallback_full.startswith("-"):
+        fallback_full = "/" + fallback_full[1:]
+    # 최소한 /home/john 부분은 복원
+    fallback_full = fallback_full.replace("-", "/", 3)  # /home/john/xxx-yyy
+    return fallback_full, None
 
 
 # ── Claude Code 스캐너 ────────────────────────────────
@@ -100,16 +151,13 @@ def _scan_claude_code() -> list[dict]:
                 status = _determine_status(mins)
 
                 # 세션 파일에서 프로젝트 경로 추출 (디렉토리명에서)
-                # 디렉토리명 형식: -home-john-projectname
-                dir_name = project_dir.name
-                project_path = dir_name.replace("-", "/")
-                if not project_path.startswith("/"):
-                    project_path = "/" + project_path
+                # 디렉토리명 형식: -home-john-projectname (하이픈이 경로 구분자)
+                # 단순 replace("-", "/") 하면 폴더명 내 하이픈까지 변환됨
+                # → PROJECTS의 실제 경로와 직접 매칭
+                project_path, proj = _match_project_dir(project_dir.name)
 
                 # 현재 작업 추출 — 마지막 몇 줄 파싱
                 current_task = _extract_current_task(session_file)
-
-                proj = _resolve_project(project_path, None)
 
                 workers.append({
                     "worker_id": f"claude_code:{session_id[:12]}",
@@ -149,14 +197,13 @@ def _extract_current_task(session_file: Path) -> str | None:
                 if entry.get("role") == "human":
                     content = entry.get("content", "")
                     if isinstance(content, str) and len(content) > 5:
-                        # 첫 100자를 요약으로
-                        return content[:100].strip()
+                        return _sanitize_task(content)
                     elif isinstance(content, list):
                         for block in content:
                             if isinstance(block, dict) and block.get("type") == "text":
                                 text = block.get("text", "")
                                 if len(text) > 5:
-                                    return text[:100].strip()
+                                    return _sanitize_task(text)
             except (json.JSONDecodeError, KeyError):
                 continue
         return None
@@ -224,7 +271,7 @@ def _scan_telegram_bot() -> list[dict]:
     if pm2_status == "online":
         if last_activity:
             mins = _minutes_ago(last_activity)
-            status = "active" if mins <= ACTIVE_THRESHOLD_MIN else "idle"
+            status = _determine_status(mins)
         else:
             status = "idle"
     else:
@@ -255,7 +302,7 @@ def _scan_macbook_codex() -> list[dict]:
     try:
         result = subprocess.run(
             ["ssh", "-o", f"ConnectTimeout={SSH_TIMEOUT}",
-             "-o", "StrictHostKeyChecking=no",
+             "-o", "StrictHostKeyChecking=accept-new",
              MACBOOK_SSH,
              "cat ~/.codex-cli/history.jsonl 2>/dev/null | tail -50"],
             capture_output=True, text=True, timeout=SSH_TIMEOUT + 5,
@@ -289,7 +336,7 @@ def _scan_macbook_codex() -> list[dict]:
                     if ts.tzinfo is None:
                         ts = ts.replace(tzinfo=timezone.utc)
                     last_activity = ts
-                    current_task = entry.get("prompt", entry.get("message", ""))[:100]
+                    current_task = _sanitize_task(entry.get("prompt", entry.get("message", "")))
                     break
             except (json.JSONDecodeError, ValueError):
                 continue
