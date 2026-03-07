@@ -77,23 +77,21 @@ export function PixelOffice() {
           const numId = projectIdToNum(p.id);
           newIds.add(numId);
           const known = knownAgentsRef.current.get(numId);
-          const isActive = p.status === 'active';
+          // All non-archived projects sit at desks (active=typing, paused=typing slower)
+          // Label color distinguishes active vs paused
           const tool = p.git_msg || null;
 
           if (!known) {
-            // New project → add agent
+            // New project → add agent, always active so they stay seated
             office.addAgent(numId);
-            office.setAgentActive(numId, isActive);
+            office.setAgentActive(numId, true);
             office.setAgentTool(numId, tool);
             knownAgentsRef.current.set(numId, { name: p.name, status: p.status });
           } else {
-            // Existing project → update state
-            if (known.status !== p.status) {
-              office.setAgentActive(numId, isActive);
-              known.status = p.status;
-            }
+            // Existing project → update tool
             office.setAgentTool(numId, tool);
             known.name = p.name;
+            known.status = p.status;
           }
         }
 
@@ -191,7 +189,7 @@ export function PixelOffice() {
             name: known.name,
             x: (result.offsetX + ch.x * zoom) / dpr,
             y: (result.offsetY + ch.y * zoom - 30 * zoom) / dpr,
-            active: ch.isActive,
+            active: known.status === 'active',
             tool: ch.currentTool,
           });
         }

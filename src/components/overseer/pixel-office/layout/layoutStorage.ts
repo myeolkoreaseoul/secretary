@@ -1,7 +1,7 @@
 import type { OfficeLayout } from '../types';
 import { createDefaultLayout, serializeLayout, deserializeLayout } from './layoutSerializer';
 
-const STORAGE_KEY = 'pixel-office-layout';
+const STORAGE_KEY = 'pixel-office-layout-v2';
 
 export function loadLayout(): OfficeLayout {
   if (typeof window === 'undefined') return createDefaultLayout();
