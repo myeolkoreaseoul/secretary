@@ -115,3 +115,10 @@
 ## 2026-03-07
 - Bot-1 (스트리밍 최적화): asyncio.create_subprocess_exec + --output-format stream-json 도입 → 체감 대기 20-30초→2-5초, asyncio.to_thread 제거, session_id type=result에서 직접 추출 (worker.py)
 - Bot-2 (웹-텔레그램 컨텍스트 통합): 웹 /api/chat → message_queue INSERT → Worker 처리. OWNER_CHAT_ID(8280174296) 공유 세션으로 텔레그램↔웹 대화 통합. 응답은 Supabase Realtime 수신. (route.ts, page.tsx, .env.local)
+
+## 2026-03-08
+- Codex 리뷰 8개 이슈 수정: stderr deadlock(--verbose 추가 후 필수), 재시도 조건 한정, 좀비 프로세스 방지, res.ok 검사, historyLoading race condition, row id 기반 dedup, 슬래시 명령 DB 실패 처리, 공백 메시지 차단
+- M1~M2 전체 검증 완료 (Worker, Listener, 웹 UI, message_queue 파이프라인 정상 가동 확인)
+- M3~M5는 실사용 후 다음 세션에서 진행 예정
+- Brazilian Phonk 프롬프트 생성기 통합: Suno AI용 7장르 프롬프트 생성기를 /phonk 페이지로 추가. generate.sh→TS 포팅, 장르 균등배분, djb2 해시 중복방지, localStorage 히스토리, SlackNav phonk 모드+사이드바
+- Pixel Office 레이아웃 직렬화 개선
