@@ -96,7 +96,7 @@ export function ProjectGrid() {
     (p) =>
       (p.git_unpushed ?? 0) >= 10 ||
       (p.git_uncommitted ?? 0) >= 20 ||
-      (p.junk_mb ?? 0) >= 100
+      ((p.junk_mb ?? 0) - (p.node_modules_mb ?? 0)) >= 100
   ).length;
 
   if (loading) {
@@ -140,7 +140,7 @@ export function ProjectGrid() {
         p &&
         ((p.git_unpushed ?? 0) >= 10 ||
           (p.git_uncommitted ?? 0) >= 20 ||
-          (p.junk_mb ?? 0) >= 100)
+          ((p.junk_mb ?? 0) - (p.node_modules_mb ?? 0)) >= 100)
       );
     });
 
