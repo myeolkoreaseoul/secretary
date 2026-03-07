@@ -24,6 +24,7 @@ export default function SecretaryChatPage() {
       const res = await apiFetch("/api/history?chat_id=0&page=1");
       const data = await res.json();
       const msgs: ChatMessage[] = (data.messages || [])
+        .slice()
         .reverse()
         .map((m: { role: string; content: string }) => ({
           role: m.role as "user" | "assistant",

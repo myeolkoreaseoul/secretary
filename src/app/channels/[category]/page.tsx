@@ -55,7 +55,7 @@ export default function CategoryChannelPage() {
   const fetchHistory = useCallback(async () => {
     setLoading(true);
     try {
-      const p = new URLSearchParams({ page: String(page), category });
+      const p = new URLSearchParams({ page: String(page), category, telegram_only: "true" });
       if (query) p.set("q", query);
       const res = await apiFetch(`/api/history?${p}`);
       const json = await res.json();

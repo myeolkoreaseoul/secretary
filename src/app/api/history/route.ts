@@ -9,6 +9,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q") || "";
   const category = searchParams.get("category") || "";
+  const chatId = searchParams.get("chat_id");
+  const telegramOnly = searchParams.get("telegram_only") === "true";
   const page = Math.min(Math.max(parseInt(searchParams.get("page") || "1", 10), 1), 100);
   const limit = 30;
   const offset = (page - 1) * limit;
@@ -24,6 +26,13 @@ export async function GET(request: NextRequest) {
 
   if (q) {
     query = query.ilike("content", `%${escapeIlike(q)}%`);
+  }
+
+  // chat_id=0: AI 비서 대화만 | telegram_only=true: 텔레그램만(chat_id != 0)
+  if (chatId !== null) {
+    query = query.eq("chat_id", parseInt(chatId, 10));
+  } else if (telegramOnly) {
+    query = query.neq("chat_id", 0);
   }
 
   if (category) {
