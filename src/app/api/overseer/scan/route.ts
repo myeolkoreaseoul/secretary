@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const scanType = body.type || "all";
 
-  if (!["all", "git", "fs", "svc"].includes(scanType)) {
+  if (!["all", "git", "fs", "svc", "worker", "stage"].includes(scanType)) {
     return NextResponse.json({ error: "Invalid scan type" }, { status: 400 });
   }
 

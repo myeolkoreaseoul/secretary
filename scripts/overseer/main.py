@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "bot"))
 import requests
 
 from .config import SUPABASE_REST_URL, SUPABASE_HEADERS, PROJECTS, THRESHOLDS, logger
-from . import scan_git, scan_fs, scan_services
+from . import scan_git, scan_fs, scan_services, scan_workers, scan_stages
 
 
 def upsert_project(project: dict) -> str | None:
@@ -62,6 +62,37 @@ def update_project_status(project_id: str, status: str):
 def run_scan(scan_type: str = "all"):
     """Run scans for all projects."""
     logger.info("=== Overseer scan started (type=%s) ===", scan_type)
+
+    # Worker scan — 프로젝트 루프 밖에서 독립 실행
+    if scan_type in ("all", "worker"):
+        workers = scan_workers.scan_all()
+        for w in workers:
+            snapshot = {
+                "worker_id": w["worker_id"],
+                "worker_type": w["worker_type"],
+                "machine": w.get("machine"),
+                "session_id": w.get("session_id"),
+                "project_id": w.get("project_id"),
+                "project_path": w.get("project_path"),
+                "status": w["status"],
+                "current_task": w.get("current_task"),
+                "task_detail": w.get("task_detail", []),
+                "last_activity": w.get("last_activity"),
+            }
+            insert_snapshot("overseer_worker_snapshots", snapshot)
+        logger.info("Workers: %d scanned (%d active)",
+                     len(workers),
+                     sum(1 for w in workers if w["status"] == "active"))
+
+    # Stage scan — 프로젝트 루프 밖에서 독립 실행
+    if scan_type in ("all", "stage"):
+        stage_results = scan_stages.scan()
+        logger.info("Stages: %d projects updated", len(stage_results))
+
+    # worker/stage 전용이면 여기서 끝
+    if scan_type in ("worker", "stage"):
+        logger.info("=== Overseer scan complete ===")
+        return
 
     for proj in PROJECTS:
         logger.info("Scanning %s ...", proj["name"])
@@ -121,8 +152,8 @@ def run_scan(scan_type: str = "all"):
 def main():
     parser = argparse.ArgumentParser(description="Overseer scanner")
     parser.add_argument(
-        "--type", choices=["all", "git", "fs", "svc"], default="all",
-        help="Scan type: all, git, fs, svc",
+        "--type", choices=["all", "git", "fs", "svc", "worker", "stage"], default="all",
+        help="Scan type: all, git, fs, svc, worker, stage",
     )
     args = parser.parse_args()
     run_scan(args.type)

@@ -14,6 +14,7 @@ import { FsHealthPanel } from "@/components/overseer/FsHealthPanel";
 import { ServiceMonitor } from "@/components/overseer/ServiceMonitor";
 import { ActionPanel } from "@/components/overseer/ActionPanel";
 import { TrendChart } from "@/components/overseer/TrendChart";
+import { WorkerPanel } from "@/components/overseer/WorkerPanel";
 import type { ProjectSummary } from "@/components/overseer/ProjectCard";
 
 interface FsSnapshot {
@@ -136,10 +137,21 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
+      {/* Stage info */}
+      {project.current_stage && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-blue-400 font-medium">{project.current_stage}</span>
+          {project.stage_detail && (
+            <span className="text-zinc-500 truncate">{project.stage_detail}</span>
+          )}
+        </div>
+      )}
+
       {/* Tabs */}
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">개요</TabsTrigger>
+          <TabsTrigger value="workers">워커</TabsTrigger>
           <TabsTrigger value="trends">트렌드</TabsTrigger>
           <TabsTrigger value="actions">액션</TabsTrigger>
         </TabsList>
@@ -171,6 +183,10 @@ export default function ProjectDetailPage() {
               <ServiceMonitor data={project} />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="workers" className="mt-4">
+          <WorkerPanel projectId={id} />
         </TabsContent>
 
         <TabsContent value="trends" className="space-y-4 mt-4">

@@ -42,6 +42,12 @@ export interface ProjectSummary {
   tunnel_url?: string | null;
   tunnel_alive?: boolean;
   svc_scanned?: string;
+  // stage
+  current_stage?: string | null;
+  stage_detail?: string | null;
+  stage_updated?: string | null;
+  // workers
+  active_workers?: number;
 }
 
 function getHealthLevel(p: ProjectSummary): string {
@@ -81,6 +87,22 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
           )}
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* 활성 워커 + 작업 단계 인디케이터 */}
+          {((project.active_workers ?? 0) > 0 || project.current_stage) && (
+            <div className="flex items-center gap-3 text-xs flex-wrap">
+              {(project.active_workers ?? 0) > 0 && (
+                <span className="text-green-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+                  {project.active_workers}명 작업 중
+                </span>
+              )}
+              {project.current_stage && (
+                <span className="text-blue-400 truncate">
+                  {project.current_stage}
+                </span>
+              )}
+            </div>
+          )}
           <GitSummary data={project} />
           <FsHealthPanel data={project} />
           <ServiceMonitor data={project} />

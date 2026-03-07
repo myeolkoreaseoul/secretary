@@ -12,6 +12,7 @@ import {
   Folder,
 } from "lucide-react";
 import { ProjectCard, type ProjectSummary } from "./ProjectCard";
+import { WorkerPanel } from "./WorkerPanel";
 
 interface TreeCategory {
   id: string;
@@ -258,6 +259,9 @@ export function ProjectGrid() {
           </Button>
         </div>
       </div>
+
+      {/* Worker Panel */}
+      <WorkerPanel />
 
       {/* Tree */}
       {tree ? (
