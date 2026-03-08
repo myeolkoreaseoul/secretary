@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback, use, useRef } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,9 @@ import {
   Wrench,
   Settings,
 } from "lucide-react";
+import { useTextSelection } from "@/hooks/useTextSelection";
+import { SelectionPopup } from "@/components/SelectionPopup";
+import { TutorPanel } from "@/components/TutorPanel";
 
 interface AIConversation {
   id: string;
@@ -115,6 +118,14 @@ export default function ConversationDetailPage({
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selection = useTextSelection(containerRef);
+  const [tutorState, setTutorState] = useState<{
+    open: boolean;
+    text?: string;
+    messageId?: string;
+  }>({ open: false });
+
   const fetchDetail = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -155,6 +166,12 @@ export default function ConversationDetailPage({
     }
   };
 
+  const handleAsk = (text: string, messageId: string) => {
+    setTutorState({ open: true, text, messageId });
+    // Clear selection
+    window.getSelection()?.removeAllRanges();
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -185,125 +202,142 @@ export default function ConversationDetailPage({
   const hasMore = messages.length < totalMessages;
 
   return (
-    <div>
-      {/* Header */}
-      <div className="mb-6">
-        <Link
-          href="/conversations"
-          className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mb-3"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          AI 대화 목록
-        </Link>
-        <h1 className="text-xl font-bold">{conv.title || "제목 없음"}</h1>
-        <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted-foreground">
-          <Badge
-            variant="outline"
-            className={providerColors[conv.provider] || ""}
+    <div className="flex flex-col h-full">
+      <div className={`flex-1 overflow-y-auto ${tutorState.open ? "max-h-[55vh]" : ""}`}>
+        {/* Header */}
+        <div className="mb-6">
+          <Link
+            href="/conversations"
+            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mb-3"
           >
-            {providerLabel(conv.provider)}
-          </Badge>
-          {conv.model && (
-            <span className="text-xs">{conv.model}</span>
-          )}
-          {conv.project_path && (
-            <span className="flex items-center gap-1">
-              <FolderOpen className="w-3 h-3" />
-              {conv.project_path.replace(/^\/home\/\w+\//, "~/")}
-            </span>
-          )}
-          <span className="flex items-center gap-1">
-            <MessageSquare className="w-3 h-3" />
-            {conv.message_count}개
-          </span>
-          <span className="flex items-center gap-1">
-            <Clock className="w-3 h-3" />
-            {formatDuration(conv.started_at, conv.ended_at)}
-          </span>
-          <span>{formatFullDate(conv.started_at)}</span>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div className="space-y-2">
-        {messages.map((msg) => {
-          const config = roleConfig[msg.role] || roleConfig.system;
-          const Icon = config.icon;
-
-          return (
-            <Card
-              key={msg.id}
-              className={
-                msg.role === "assistant"
-                  ? "border-l-2 border-l-primary/50"
-                  : msg.role === "tool"
-                    ? "border-l-2 border-l-yellow-500/50"
-                    : ""
-              }
+            <ArrowLeft className="w-4 h-4" />
+            AI 대화 목록
+          </Link>
+          <h1 className="text-xl font-bold">{conv.title || "제목 없음"}</h1>
+          <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted-foreground">
+            <Badge
+              variant="outline"
+              className={providerColors[conv.provider] || ""}
             >
-              <CardHeader className="py-2 pb-0">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-                    <Badge
-                      variant={config.color as "default" | "secondary" | "outline"}
-                      className="text-[10px]"
-                    >
-                      {config.label}
-                    </Badge>
-                    {msg.model && msg.model !== conv.model && (
+              {providerLabel(conv.provider)}
+            </Badge>
+            {conv.model && (
+              <span className="text-xs">{conv.model}</span>
+            )}
+            {conv.project_path && (
+              <span className="flex items-center gap-1">
+                <FolderOpen className="w-3 h-3" />
+                {conv.project_path.replace(/^\/home\/\w+\//, "~/")}
+              </span>
+            )}
+            <span className="flex items-center gap-1">
+              <MessageSquare className="w-3 h-3" />
+              {conv.message_count}개
+            </span>
+            <span className="flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {formatDuration(conv.started_at, conv.ended_at)}
+            </span>
+            <span>{formatFullDate(conv.started_at)}</span>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="space-y-2" ref={containerRef}>
+          {messages.map((msg) => {
+            const config = roleConfig[msg.role] || roleConfig.system;
+            const Icon = config.icon;
+
+            return (
+              <Card
+                key={msg.id}
+                data-message-id={msg.id}
+                className={
+                  msg.role === "assistant"
+                    ? "border-l-2 border-l-primary/50"
+                    : msg.role === "tool"
+                      ? "border-l-2 border-l-yellow-500/50"
+                      : ""
+                }
+              >
+                <CardHeader className="py-2 pb-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                      <Badge
+                        variant={config.color as "default" | "secondary" | "outline"}
+                        className="text-[10px]"
+                      >
+                        {config.label}
+                      </Badge>
+                      {msg.model && msg.model !== conv.model && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {msg.model}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {msg.token_count != null && msg.token_count > 0 && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {msg.token_count.toLocaleString()} tokens
+                        </span>
+                      )}
                       <span className="text-[10px] text-muted-foreground">
-                        {msg.model}
+                        {formatTime(msg.message_at)}
                       </span>
-                    )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {msg.token_count != null && msg.token_count > 0 && (
-                      <span className="text-[10px] text-muted-foreground">
-                        {msg.token_count.toLocaleString()} tokens
-                      </span>
-                    )}
-                    <span className="text-[10px] text-muted-foreground">
-                      {formatTime(msg.message_at)}
-                    </span>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="py-2 pb-3">
-                {msg.content ? (
-                  <pre className="text-sm whitespace-pre-wrap break-words font-[inherit] max-h-96 overflow-y-auto">
-                    {msg.content}
-                  </pre>
-                ) : (
-                  <p className="text-sm text-muted-foreground italic">
-                    (내용 없음)
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+                </CardHeader>
+                <CardContent className="py-2 pb-3">
+                  {msg.content ? (
+                    <pre className="text-sm whitespace-pre-wrap break-words font-[inherit] max-h-96 overflow-y-auto">
+                      {msg.content}
+                    </pre>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">
+                      (내용 없음)
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+
+        {/* Load more */}
+        {hasMore && (
+          <div className="flex justify-center mt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadMore}
+              disabled={loadingMore}
+            >
+              {loadingMore ? (
+                "불러오는 중..."
+              ) : (
+                <>
+                  <ChevronDown className="w-4 h-4 mr-1" />
+                  더 보기 ({messages.length}/{totalMessages})
+                </>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Load more */}
-      {hasMore && (
-        <div className="flex justify-center mt-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={loadMore}
-            disabled={loadingMore}
-          >
-            {loadingMore ? (
-              "불러오는 중..."
-            ) : (
-              <>
-                <ChevronDown className="w-4 h-4 mr-1" />
-                더 보기 ({messages.length}/{totalMessages})
-              </>
-            )}
-          </Button>
-        </div>
+      {selection && !tutorState.open && (
+        <SelectionPopup selection={selection} onAsk={handleAsk} />
+      )}
+
+      {tutorState.open && (
+        <TutorPanel
+          key={`${tutorState.messageId}-${tutorState.text}`}
+          conversationId={id}
+          initialText={tutorState.text}
+          messageId={tutorState.messageId}
+          onClose={() => setTutorState({ open: false })}
+        />
       )}
     </div>
   );

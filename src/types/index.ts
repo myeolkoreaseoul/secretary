@@ -213,6 +213,20 @@ export interface ReportResponse {
   }[];
 }
 
+// 과외 API
+export interface TutorRequest {
+  conversation_id: string;
+  message_id?: string;
+  selected_text?: string;
+  question: string;
+  history?: { role: string; content: string }[];
+}
+
+export interface TutorResponse {
+  answer: string;
+  related_concepts?: string[];
+}
+
 // Claude API 분류 결과
 export interface ClassifierItem {
   category: string;
