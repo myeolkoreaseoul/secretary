@@ -115,7 +115,7 @@ export function TutorPanel({
     <div className="border-t-2 border-[#333] bg-black flex flex-col font-mono" style={{ height: "45vh", minHeight: 200 }}>
       {/* Header - Claude Code 스타일 상단 바 */}
       <div className="flex items-center justify-between px-4 py-1.5 border-b border-[#333] shrink-0">
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-sm">
           <span className="text-[#b48ead]">◆</span>
           <span className="text-white font-bold">Tutor</span>
           {initialText && (
@@ -134,7 +134,7 @@ export function TutorPanel({
       </div>
 
       {/* Messages - CLI 출력 스타일 */}
-      <div className="flex-1 overflow-y-auto text-[13px] leading-relaxed px-4 py-3 space-y-3" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto text-[15px] leading-relaxed px-4 py-3 space-y-3" ref={scrollRef}>
         {messages.map((msg, i) => (
           <div key={i}>
             {msg.role === "user" ? (
@@ -152,7 +152,7 @@ export function TutorPanel({
                     /* 표: CLI 유니코드 보더 스타일 */
                     table: ({ children }) => (
                       <div className="my-2 overflow-x-auto">
-                        <table className="border-collapse text-xs w-full">{children}</table>
+                        <table className="border-collapse text-sm w-full">{children}</table>
                       </div>
                     ),
                     thead: ({ children }) => <thead>{children}</thead>,
@@ -173,7 +173,7 @@ export function TutorPanel({
                       if (isBlock) {
                         return (
                           <code
-                            className="block bg-[#111] rounded px-3 py-2 my-2 overflow-x-auto text-[#a3be8c] text-xs border-l-2 border-[#555]"
+                            className="block bg-[#111] rounded px-3 py-2 my-2 overflow-x-auto text-[#a3be8c] text-sm border-l-2 border-[#555]"
                             {...props}
                           >
                             {children}
@@ -181,7 +181,7 @@ export function TutorPanel({
                         );
                       }
                       return (
-                        <code className="bg-[#222] text-[#ebcb8b] px-1 rounded text-xs" {...props}>
+                        <code className="text-[#ebcb8b]" {...props}>
                           {children}
                         </code>
                       );
@@ -193,8 +193,8 @@ export function TutorPanel({
                     ol: ({ children }) => <ol className="list-decimal pl-5 my-1 space-y-0.5">{children}</ol>,
                     li: ({ children }) => <li>{children}</li>,
                     /* 헤딩: CLI 볼드 스타일 */
-                    h1: ({ children }) => <h1 className="text-white font-bold text-sm mt-3 mb-1">{children}</h1>,
-                    h2: ({ children }) => <h2 className="text-white font-bold text-sm mt-3 mb-1">{children}</h2>,
+                    h1: ({ children }) => <h1 className="text-white font-bold text-base mt-3 mb-1">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-white font-bold text-base mt-3 mb-1">{children}</h2>,
                     h3: ({ children }) => <h3 className="text-[#88c0d0] font-bold mt-2 mb-1">{children}</h3>,
                     strong: ({ children }) => <strong className="text-white font-bold">{children}</strong>,
                     em: ({ children }) => <em className="text-[#b48ead] not-italic">{children}</em>,
@@ -221,7 +221,7 @@ export function TutorPanel({
         {loading && (
           <div className="flex items-center gap-2 text-[#616e7c]">
             <Loader2 className="w-3 h-3 animate-spin" />
-            <span className="text-xs">⏳ {elapsed}초</span>
+            <span className="text-sm">⏳ {elapsed}초</span>
           </div>
         )}
       </div>
@@ -237,7 +237,7 @@ export function TutorPanel({
             onKeyDown={handleKeyDown}
             placeholder="추가 질문..."
             rows={1}
-            className="flex-1 bg-transparent text-[13px] text-white resize-none outline-none placeholder:text-[#444]"
+            className="flex-1 bg-transparent text-[15px] text-white resize-none outline-none placeholder:text-[#444]"
           />
           <button
             disabled={!input.trim() || loading}
