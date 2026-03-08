@@ -202,8 +202,8 @@ export default function ConversationDetailPage({
   const hasMore = messages.length < totalMessages;
 
   return (
-    <div className="flex">
-      <div className={`flex-1 transition-all duration-300 ${tutorState.open ? "mr-96" : ""}`}>
+    <div className="flex flex-col h-full">
+      <div className={`flex-1 overflow-y-auto ${tutorState.open ? "max-h-[55vh]" : ""}`}>
         {/* Header */}
         <div className="mb-6">
           <Link
