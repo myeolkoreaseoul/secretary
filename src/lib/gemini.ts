@@ -1,7 +1,8 @@
 import { execFile } from "child_process";
-import { writeFileSync, unlinkSync } from "fs";
+import { writeFileSync, unlinkSync, mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { randomBytes } from "crypto";
 
 const GEMINI_BIN = "/home/john/.nvm/versions/node/v20.19.6/bin/gemini";
 
@@ -12,7 +13,7 @@ const GEMINI_BIN = "/home/john/.nvm/versions/node/v20.19.6/bin/gemini";
 export function callGemini(systemPrompt: string, userMessage: string): Promise<string> {
   return new Promise((resolve, reject) => {
     // 시스템 프롬프트를 임시 파일로 작성
-    const tmpFile = join(tmpdir(), `gemini-sys-${Date.now()}.md`);
+    const tmpFile = join(tmpdir(), `gemini-sys-${Date.now()}-${randomBytes(4).toString("hex")}.md`);
     writeFileSync(tmpFile, systemPrompt, "utf-8");
 
     const proc = execFile(
@@ -39,7 +40,7 @@ export function callGemini(systemPrompt: string, userMessage: string): Promise<s
 
         try {
           const json = JSON.parse(stdout);
-          resolve(json.response || stdout.trim());
+          resolve(json.response ?? stdout.trim());
         } catch {
           // JSON 파싱 실패 시 raw text 반환
           resolve(stdout.trim());
