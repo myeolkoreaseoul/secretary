@@ -39,6 +39,7 @@ export function callClaude(
         env: {
           ...process.env,
           HOME: "/home/john",
+          CLAUDECODE: "", // 중첩 세션 감지 우회
         } as NodeJS.ProcessEnv,
       },
       (error, stdout, stderr) => {
