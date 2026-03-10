@@ -36,6 +36,7 @@ CLAUDE_MD_FULL = BOT_DIR / "CLAUDE_FULL.md"
 DRAIN_WAIT = 0.5  # seconds to wait for additional messages
 MAX_RETRIES = 3  # max retry attempts for failed messages
 MAX_TOOL_ITERATIONS = 20  # max agentic tool_use loop iterations
+ZOMBIE_AGE_MINUTES = 10  # only recover messages older than this
 
 # Keywords that indicate a complex/long-running task → Opus routing
 _COMPLEX_KEYWORDS = re.compile(
@@ -71,19 +72,32 @@ def _get_timeout(content: str) -> int:
     return CLAUDE_TIMEOUT_SIMPLE
 
 
+def _safe_int(value: str, default: int = 5, cap: int = 120) -> int:
+    """Safely parse an integer from a string with fallback and cap."""
+    try:
+        return min(int(value), cap)
+    except (ValueError, TypeError):
+        return default
+
+
 # ---------------------------------------------------------------------------
-# Lock Management (fcntl-based, atomic)
+# Lock Management (fcntl-based, stable inode)
 # ---------------------------------------------------------------------------
 
 _lock_fd = None
 
 
 def acquire_lock() -> bool:
-    """Acquire an OS-level file lock (atomic, no race conditions)."""
+    """Acquire an OS-level file lock (atomic, no race conditions).
+
+    US-001 fix: open with 'a+' to avoid truncation before lock.
+    """
     global _lock_fd
     try:
-        _lock_fd = open(LOCK_FILE, "w")
+        _lock_fd = open(LOCK_FILE, "a+")
         fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_fd.seek(0)
+        _lock_fd.truncate()
         _lock_fd.write(str(os.getpid()))
         _lock_fd.flush()
         return True
@@ -95,7 +109,10 @@ def acquire_lock() -> bool:
 
 
 def release_lock() -> None:
-    """Release the file lock (only if we hold it)."""
+    """Release the file lock (only if we hold it).
+
+    US-001 fix: never unlink the lock file — keep stable inode.
+    """
     global _lock_fd
     if _lock_fd:
         try:
@@ -104,7 +121,7 @@ def release_lock() -> None:
         except Exception:
             pass
         _lock_fd = None
-        LOCK_FILE.unlink(missing_ok=True)
+        # DO NOT unlink — stable inode prevents split-lock race
 
 
 # ---------------------------------------------------------------------------
@@ -157,16 +174,19 @@ async def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
 
             # Handle HTTP errors with retry logic
             if resp.status_code == 401:
-                log.warning("401 Unauthorized — forcing token refresh")
+                log.warning("401 Unauthorized — forcing token refresh (attempt %d/%d)", retries + 1, MAX_RETRIES)
                 oauth._expires_at = 0  # force refresh
                 await oauth._refresh_if_needed()
                 retries += 1
                 if retries > MAX_RETRIES:
                     return False, "auth_failed"
+                # Exponential backoff before retry
+                await asyncio.sleep(min(2 ** retries, 30))
                 continue
 
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get("retry-after", "5"))
+                # US-010 fix: safe parsing of retry-after header
+                retry_after = _safe_int(resp.headers.get("retry-after", "5"))
                 log.warning("429 Rate limited — backing off %ds", retry_after)
                 await asyncio.sleep(retry_after)
                 retries += 1
@@ -230,6 +250,11 @@ async def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
                             "is_error": True,
                         })
 
+            # US-011 fix: fail fast if stop_reason=tool_use but no tool blocks found
+            if not tool_results:
+                log.error("API returned stop_reason=tool_use but no tool_use blocks in content")
+                return False, "protocol_error_empty_tool_use"
+
             messages.append({"role": "user", "content": tool_results})
             continue
 
@@ -276,20 +301,28 @@ async def drain_messages(chat_id: int, first_content: str) -> tuple[str, list[st
 
 
 # ---------------------------------------------------------------------------
-# Zombie Recovery & Retry Logic (#3, #4)
+# Zombie Recovery & Retry Logic
 # ---------------------------------------------------------------------------
 
 async def recover_zombie_messages() -> int:
     """Reset 'processing' messages that have been stuck (zombie recovery).
 
-    Called on worker startup. Returns the number of recovered messages.
+    US-003 fix: only requeues messages older than ZOMBIE_AGE_MINUTES.
+    Called on worker startup AFTER acquiring lock.
     """
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=ZOMBIE_AGE_MINUTES)).isoformat()
+
     recovered = 0
     try:
         result = await db._request(
             "GET",
             "message_queue",
-            params={"status": "eq.processing", "order": "created_at.asc"},
+            params={
+                "status": "eq.processing",
+                "created_at": f"lt.{cutoff}",
+                "order": "created_at.asc",
+            },
         )
         if not result:
             return 0
@@ -313,9 +346,11 @@ async def recover_zombie_messages() -> int:
 async def retry_recent_failures() -> int:
     """Re-queue recently failed 'timeout' messages for retry (max MAX_RETRIES).
 
-    Only retries messages with error_message='timeout' from the last hour.
-    Returns the number of retried messages.
+    US-008 fix: only retries messages from the last hour (created_at filter).
     """
+    from datetime import datetime, timedelta, timezone
+    one_hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+
     retried = 0
     try:
         result = await db._request(
@@ -324,6 +359,7 @@ async def retry_recent_failures() -> int:
             params={
                 "status": "eq.failed",
                 "error_message": "eq.timeout",
+                "created_at": f"gte.{one_hour_ago}",
                 "order": "created_at.desc",
                 "limit": "5",
             },
@@ -343,12 +379,12 @@ async def retry_recent_failures() -> int:
                 )
                 continue
 
-            # Update retry count in metadata and requeue
+            # Update retry count in metadata and requeue (guard with status=eq.failed)
             metadata["retry_count"] = retry_count + 1
             await db._request(
                 "PATCH",
                 "message_queue",
-                params={"id": f"eq.{msg['id']}"},
+                params={"id": f"eq.{msg['id']}", "status": "eq.failed"},
                 json_body={
                     "status": "pending",
                     "error_message": None,
@@ -402,11 +438,17 @@ async def process_one() -> bool:
     if extra_queue_ids:
         log.info("Batched %d messages for chat_id=%s", len(all_queue_ids), chat_id)
 
-    # Send placeholder immediately (respond first, edit later)
-    placeholder_id = await tg.send_message(chat_id, "🔄 처리 중...", parse_mode=None)
-
+    # US-002 fix: placeholder send is inside the try block
+    placeholder_id = None
     lock_acquired = False
     try:
+        # Send placeholder (inside try so failure doesn't orphan messages)
+        try:
+            placeholder_id = await tg.send_message(chat_id, "🔄 처리 중...", parse_mode=None)
+        except Exception as e:
+            log.warning("Failed to send placeholder: %s", e)
+            # Continue processing — placeholder is optional
+
         lock_acquired = acquire_lock()
         if not lock_acquired:
             log.info("Another worker is running, requeueing messages")
@@ -472,15 +514,30 @@ async def main():
         POLL_INTERVAL, CLAUDE_TIMEOUT_SIMPLE, CLAUDE_TIMEOUT_COMPLEX, MAX_RETRIES,
     )
 
-    # #3: Recover zombie messages on startup
-    await recover_zombie_messages()
-
-    # #4: Retry recently timed-out messages
-    await retry_recent_failures()
+    # US-003 fix: acquire lock BEFORE zombie recovery
+    if not acquire_lock():
+        log.error("Another worker is already running — exiting")
+        return
 
     try:
+        # Recover zombie messages (only old ones, after lock acquired)
+        await recover_zombie_messages()
+
+        # Retry recently timed-out messages
+        await retry_recent_failures()
+
+        # Release startup lock — process_one() acquires its own per-message lock
+        release_lock()
+
         while True:
             try:
+                # If OAuth is unhealthy, back off and reload before processing
+                if not oauth.is_healthy:
+                    log.warning("OAuth unhealthy — reloading credentials from disk")
+                    oauth._load_credentials()
+                    await asyncio.sleep(30)
+                    continue
+
                 processed = await process_one()
                 if processed:
                     await asyncio.sleep(1)

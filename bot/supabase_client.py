@@ -1,5 +1,6 @@
 """Supabase REST API client for all database operations."""
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -11,6 +12,17 @@ from bot.config import SUPABASE_REST_URL, SUPABASE_HEADERS, SUPABASE_URL, SUPABA
 log = logging.getLogger("secretary.supabase")
 
 _client: httpx.AsyncClient | None = None
+
+_MAX_RETRIES = 3
+_RETRYABLE_STATUS = {500, 502, 503, 504, 521, 522, 524}
+# US-007: only retry idempotent HTTP methods on transport errors
+_IDEMPOTENT_METHODS = {"GET", "HEAD", "OPTIONS", "PUT", "DELETE"}
+# US-012: broad set of transient httpx exceptions
+_RETRYABLE_EXCEPTIONS = (
+    httpx.ConnectError,
+    httpx.TimeoutException,  # base class covers ReadTimeout, ConnectTimeout, WriteTimeout, PoolTimeout
+    httpx.RemoteProtocolError,
+)
 
 
 def _get_client() -> httpx.AsyncClient:
@@ -28,28 +40,74 @@ async def _request(
     json_body: Any = None,
     headers: dict | None = None,
 ) -> Any:
-    """Make a request to Supabase REST API."""
+    """Make a request to Supabase REST API with retry on transient errors.
+
+    US-007: transport-level retries (ConnectError, Timeout) only for idempotent methods.
+    HTTP 5xx retries apply to all methods (server confirmed failure via status code).
+    """
     client = _get_client()
     url = f"{SUPABASE_REST_URL}/{path}"
     merged_headers = {**SUPABASE_HEADERS, **(headers or {})}
+    is_idempotent = method.upper() in _IDEMPOTENT_METHODS
 
-    resp = await client.request(
-        method, url, params=params, json=json_body, headers=merged_headers
-    )
-    resp.raise_for_status()
+    last_exc = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            resp = await client.request(
+                method, url, params=params, json=json_body, headers=merged_headers
+            )
+            # Retry on server errors (safe for all methods — server gave us a status)
+            if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES:
+                wait = 2 ** attempt
+                log.warning("Supabase %d on %s %s — retrying in %ds", resp.status_code, method, path, wait)
+                await asyncio.sleep(wait)
+                continue
+            resp.raise_for_status()
+            if resp.status_code == 204 or not resp.content:
+                return None
+            return resp.json()
+        except _RETRYABLE_EXCEPTIONS as e:
+            last_exc = e
+            # US-007: only retry transport errors for idempotent methods
+            if is_idempotent and attempt < _MAX_RETRIES:
+                wait = 2 ** attempt
+                log.warning("Supabase %s on %s %s — retrying in %ds", type(e).__name__, method, path, wait)
+                await asyncio.sleep(wait)
+            else:
+                raise
 
-    if resp.status_code == 204 or not resp.content:
-        return None
-    return resp.json()
+    raise last_exc  # type: ignore[misc]
 
 
 async def _rpc(fn_name: str, params: dict) -> Any:
-    """Call a Supabase RPC function."""
+    """Call a Supabase RPC function with retry on transient errors.
+
+    US-012 fix: reuses same retry logic as _request.
+    """
     client = _get_client()
     url = f"{SUPABASE_URL}/rest/v1/rpc/{fn_name}"
-    resp = await client.post(url, json=params, headers=SUPABASE_HEADERS)
-    resp.raise_for_status()
-    return resp.json()
+
+    last_exc = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            resp = await client.post(url, json=params, headers=SUPABASE_HEADERS)
+            if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES:
+                wait = 2 ** attempt
+                log.warning("Supabase RPC %s %d — retrying in %ds", fn_name, resp.status_code, wait)
+                await asyncio.sleep(wait)
+                continue
+            resp.raise_for_status()
+            return resp.json()
+        except _RETRYABLE_EXCEPTIONS as e:
+            last_exc = e
+            if attempt < _MAX_RETRIES:
+                wait = 2 ** attempt
+                log.warning("Supabase RPC %s %s — retrying in %ds", fn_name, type(e).__name__, wait)
+                await asyncio.sleep(wait)
+            else:
+                raise
+
+    raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -87,12 +145,8 @@ async def enqueue_message(
 async def dequeue_message() -> dict | None:
     """Atomically claim the oldest pending message.
 
-    Uses FOR UPDATE SKIP LOCKED via Supabase RPC to prevent race conditions.
-    Falls back to a simple SELECT + UPDATE if the RPC is not available.
+    Uses SELECT + PATCH with status guard to prevent double-dequeue.
     """
-    # Simple approach: select oldest pending, then update to processing
-    # Note: True FOR UPDATE SKIP LOCKED requires a raw SQL RPC.
-    # For a single-worker setup, this select-then-update is safe.
     result = await _request(
         "GET",
         "message_queue",
@@ -122,11 +176,14 @@ async def dequeue_message() -> dict | None:
 
 
 async def complete_message(queue_id: str) -> None:
-    """Mark a queue message as done."""
+    """Mark a queue message as done.
+
+    US-006 fix: guarded with status=eq.processing to prevent stale overwrites.
+    """
     await _request(
         "PATCH",
         "message_queue",
-        params={"id": f"eq.{queue_id}"},
+        params={"id": f"eq.{queue_id}", "status": "eq.processing"},
         json_body={
             "status": "done",
             "processed_at": datetime.now(timezone.utc).isoformat(),
@@ -136,22 +193,28 @@ async def complete_message(queue_id: str) -> None:
 
 
 async def fail_message(queue_id: str, error: str) -> None:
-    """Mark a queue message as failed."""
+    """Mark a queue message as failed.
+
+    US-006 fix: guarded with status=eq.processing to prevent stale overwrites.
+    """
     await _request(
         "PATCH",
         "message_queue",
-        params={"id": f"eq.{queue_id}"},
+        params={"id": f"eq.{queue_id}", "status": "eq.processing"},
         json_body={"status": "failed", "error_message": error[:500]},
     )
     log.warning("Failed message queue_id=%s error=%s", queue_id, error[:100])
 
 
 async def requeue_message(queue_id: str) -> None:
-    """Put a message back to pending (e.g. on lock contention)."""
+    """Put a message back to pending (e.g. on lock contention).
+
+    US-006 fix: guarded with status=eq.processing to prevent stale overwrites.
+    """
     await _request(
         "PATCH",
         "message_queue",
-        params={"id": f"eq.{queue_id}"},
+        params={"id": f"eq.{queue_id}", "status": "eq.processing"},
         json_body={"status": "pending"},
     )
     log.info("Requeued message queue_id=%s", queue_id)
