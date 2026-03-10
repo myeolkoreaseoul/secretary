@@ -1,9 +1,9 @@
-"""Message worker — watches DB queue and processes via Claude CLI.
+"""Message worker — watches DB queue and processes via Anthropic API.
 
 Runs as a long-lived process (systemd service).
 Polls message_queue for pending messages.
-Calls Claude CLI with MCP server for tool access.
-Supports session continuity (--resume) and coding tasks (long timeout).
+Calls Anthropic Messages API directly with agentic tool_use loop.
+Routes to Haiku (simple) or Opus (complex) based on message content.
 """
 
 import asyncio
@@ -12,14 +12,18 @@ import json
 import logging
 import os
 import re
-import time
 from pathlib import Path
+
+import httpx
 
 from bot.config import (
     require_env, BOT_DIR, TELEGRAM_ALLOWED_USERS,
     CLAUDE_MODEL_SIMPLE, CLAUDE_MODEL_COMPLEX,
     CLAUDE_TIMEOUT_SIMPLE, CLAUDE_TIMEOUT_COMPLEX,
+    ANTHROPIC_API_URL,
 )
+from bot.oauth_client import oauth
+from bot.mcp_server import TOOL_DEFINITIONS, dispatch_tool
 from bot import supabase_client as db
 from bot import telegram_sender as tg
 
@@ -27,15 +31,11 @@ log = logging.getLogger("secretary.worker")
 
 POLL_INTERVAL = 3  # seconds between queue checks
 LOCK_FILE = BOT_DIR / "worker.lock"
-MCP_CONFIG = BOT_DIR / "mcp.json"
 CLAUDE_MD_SIMPLE = BOT_DIR / "CLAUDE_SIMPLE.md"
 CLAUDE_MD_FULL = BOT_DIR / "CLAUDE_FULL.md"
-SESSIONS_FILE = BOT_DIR / "sessions.json"
-WORKSPACE_DIR = Path("/home/john/projects/workspace")
-SESSION_TTL = 7 * 24 * 60 * 60  # 7 days — Claude CLI auto-compacts long sessions
 DRAIN_WAIT = 0.5  # seconds to wait for additional messages
 MAX_RETRIES = 3  # max retry attempts for failed messages
-ZOMBIE_TIMEOUT = 1800  # seconds before a "processing" message is considered zombie
+MAX_TOOL_ITERATIONS = 20  # max agentic tool_use loop iterations
 
 # Keywords that indicate a complex/long-running task → Opus routing
 _COMPLEX_KEYWORDS = re.compile(
@@ -45,6 +45,16 @@ _COMPLEX_KEYWORDS = re.compile(
     r"플래닝|시간표|계획.세워|리뷰.트리거",
     re.IGNORECASE,
 )
+
+# Module-level httpx client (reused across requests)
+_api_client: httpx.AsyncClient | None = None
+
+
+def _get_api_client() -> httpx.AsyncClient:
+    global _api_client
+    if _api_client is None or _api_client.is_closed:
+        _api_client = httpx.AsyncClient(timeout=120.0)
+    return _api_client
 
 
 def _get_model(content: str) -> str:
@@ -98,109 +108,21 @@ def release_lock() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Session Management (fcntl-locked JSON file)
-# ---------------------------------------------------------------------------
-
-SESSIONS_LOCK = BOT_DIR / "sessions.lock"
-_sessions_lock_fd = None
-
-
-def _acquire_sessions_lock() -> None:
-    """Acquire exclusive lock for sessions file operations."""
-    global _sessions_lock_fd
-    _sessions_lock_fd = open(SESSIONS_LOCK, "w")
-    fcntl.flock(_sessions_lock_fd, fcntl.LOCK_EX)
-
-
-def _release_sessions_lock() -> None:
-    """Release sessions file lock."""
-    global _sessions_lock_fd
-    if _sessions_lock_fd:
-        fcntl.flock(_sessions_lock_fd, fcntl.LOCK_UN)
-        _sessions_lock_fd.close()
-        _sessions_lock_fd = None
-
-
-def _load_sessions_unlocked() -> dict:
-    """Load sessions from disk. Caller must hold lock."""
-    try:
-        with open(SESSIONS_FILE, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
-
-
-def _save_sessions_unlocked(data: dict) -> None:
-    """Write sessions to disk atomically. Caller must hold lock."""
-    tmp = SESSIONS_FILE.with_suffix(".tmp")
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    tmp.rename(SESSIONS_FILE)
-
-
-def get_session(chat_id: int) -> str | None:
-    """Get session_id for a chat, or None if expired/missing."""
-    _acquire_sessions_lock()
-    try:
-        data = _load_sessions_unlocked()
-        key = str(chat_id)
-        entry = data.get(key)
-        if not entry:
-            return None
-        age_hours = (time.time() - entry.get("last_used", 0)) / 3600
-        if age_hours > SESSION_TTL / 3600:
-            log.info(
-                "Session expired for chat_id=%s (age=%.1fh, ttl=%dh), starting fresh",
-                chat_id, age_hours, SESSION_TTL // 3600,
-            )
-            del data[key]
-            _save_sessions_unlocked(data)
-            return None
-        return entry.get("session_id")
-    finally:
-        _release_sessions_lock()
-
-
-def set_session(chat_id: int, session_id: str) -> None:
-    """Store session_id for a chat."""
-    _acquire_sessions_lock()
-    try:
-        data = _load_sessions_unlocked()
-        data[str(chat_id)] = {
-            "session_id": session_id,
-            "last_used": time.time(),
-        }
-        _save_sessions_unlocked(data)
-    finally:
-        _release_sessions_lock()
-
-
-def clear_session(chat_id: int) -> None:
-    """Remove session for a chat."""
-    _acquire_sessions_lock()
-    try:
-        data = _load_sessions_unlocked()
-        data.pop(str(chat_id), None)
-        _save_sessions_unlocked(data)
-    finally:
-        _release_sessions_lock()
-
-
-# ---------------------------------------------------------------------------
-# Claude CLI Execution
+# Anthropic API Execution (agentic tool_use loop)
 # ---------------------------------------------------------------------------
 
 async def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
-    """Run Claude CLI with MCP server and session support.
+    """Call Anthropic Messages API with agentic tool_use loop.
 
     Returns (success, output).
-    Uses --output-format stream-json for streaming first-token delivery.
-    Resumes existing sessions with --resume.
-    Falls back to new session if resume fails.
     Routes to Haiku (simple) or Opus (complex) based on message content.
+    Handles tool_use responses by dispatching to mcp_server tools.
     """
+    model = _get_model(message_content)
+    timeout = _get_timeout(message_content)
+    system_prompt_path = CLAUDE_MD_FULL if model == CLAUDE_MODEL_COMPLEX else CLAUDE_MD_SIMPLE
+    system_prompt = system_prompt_path.read_text()
+
     prompt = (
         f"새 텔레그램 메시지가 도착했습니다.\n"
         f"chat_id: {chat_id}\n"
@@ -208,135 +130,118 @@ async def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
         f"위 워크플로우에 따라 처리해주세요."
     )
 
-    model = _get_model(message_content)
-    timeout = _get_timeout(message_content)
-    session_id = get_session(chat_id)
+    messages = [{"role": "user", "content": prompt}]
 
-    log.info("Routing to %s for message (timeout=%ds)", model, timeout)
+    log.info("Calling Anthropic API (model=%s, timeout=%ds)", model, timeout)
 
-    success, output = await _invoke_claude(prompt, chat_id, session_id, timeout, model)
+    client = _get_api_client()
+    retries = 0
 
-    # Retry without session only if failure is resume-related
-    _RESUME_ERRORS = ("invalid session", "session not found", "resume", "no such session")
-    if not success and session_id and any(e in output.lower() for e in _RESUME_ERRORS):
-        log.warning("Resume failed for chat_id=%s, retrying without session", chat_id)
-        clear_session(chat_id)
-        success, output = await _invoke_claude(prompt, chat_id, session_id=None, timeout=timeout, model=model)
-
-    return success, output
-
-
-async def _invoke_claude(
-    prompt: str,
-    chat_id: int,
-    session_id: str | None,
-    timeout: int,
-    model: str = CLAUDE_MODEL_COMPLEX,
-) -> tuple[bool, str]:
-    """Low-level Claude CLI invocation (async subprocess + stream-json)."""
-    # Select system prompt based on model
-    system_prompt = CLAUDE_MD_FULL if model == CLAUDE_MODEL_COMPLEX else CLAUDE_MD_SIMPLE
-
-    cmd = [
-        "claude", "-p",
-        "--model", model,
-        "--dangerously-skip-permissions",
-        "--mcp-config", str(MCP_CONFIG),
-        "--append-system-prompt-file", str(system_prompt),
-        "--output-format", "stream-json",
-        "--verbose",
-    ]
-    if session_id:
-        cmd.extend(["--resume", session_id])
-    cmd.append(prompt)
-
-    env = os.environ.copy()
-    env.pop("CLAUDE_CODE_ENTRY_POINT", None)
-    env.pop("CLAUDECODE", None)
-
-    log.info(
-        "Executing Claude CLI (model=%s, resume=%s, timeout=%ds)...",
-        model,
-        session_id[:8] if session_id else "new",
-        timeout,
-    )
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(WORKSPACE_DIR),
-            env=env,
-        )
-
-        first_text_sent = False
-        result_text = ""
-        new_session_id = None
-        stderr_chunks: list[str] = []
-
-        async def _read_stdout():
-            nonlocal first_text_sent, result_text, new_session_id
-            async for raw_line in proc.stdout:
-                line = raw_line.decode().strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    log.debug("Non-JSON line from Claude: %s", line[:200])
-                    continue
-
-                etype = event.get("type")
-
-                if etype == "assistant":
-                    for block in event.get("message", {}).get("content", []):
-                        if block.get("type") == "text":
-                            result_text += block["text"]
-                            if not first_text_sent:
-                                log.info("First token received from Claude (streaming)")
-                                first_text_sent = True
-
-                elif etype == "result":
-                    result_text = event.get("result", result_text)
-                    new_session_id = event.get("session_id")
-
-        async def _drain_stderr():
-            async for raw_line in proc.stderr:
-                stderr_chunks.append(raw_line.decode())
-
-        await asyncio.wait_for(
-            asyncio.gather(_read_stdout(), _drain_stderr()),
-            timeout=timeout,
-        )
-        await proc.wait()
-
-        if new_session_id:
-            set_session(chat_id, new_session_id)
-            log.info("Session saved: %s", new_session_id[:8])
-
-        if proc.returncode == 0:
-            log.info("Claude CLI completed successfully")
-            return True, result_text
-
-        stderr = "".join(stderr_chunks)
-        log.warning("Claude CLI failed (code=%d): stderr=%s", proc.returncode, stderr[:500])
-        return False, stderr[:500] or f"exit_code={proc.returncode}"
-
-    except asyncio.TimeoutError:
-        log.error("Claude CLI timed out after %ds", timeout)
+    for iteration in range(MAX_TOOL_ITERATIONS):
         try:
-            proc.kill()
-            await proc.wait()
-        except Exception:
-            pass
-        return False, "timeout"
-    except FileNotFoundError:
-        log.error("Claude CLI not found in PATH")
-        return False, "claude_not_found"
-    except Exception as e:
-        log.error("Claude CLI error: %s", e)
-        return False, str(e)
+            headers = await oauth.get_headers()
+            resp = await asyncio.wait_for(
+                client.post(
+                    ANTHROPIC_API_URL,
+                    headers=headers,
+                    json={
+                        "model": model,
+                        "max_tokens": 4096,
+                        "system": system_prompt,
+                        "messages": messages,
+                        "tools": TOOL_DEFINITIONS,
+                    },
+                ),
+                timeout=timeout,
+            )
+
+            # Handle HTTP errors with retry logic
+            if resp.status_code == 401:
+                log.warning("401 Unauthorized — forcing token refresh")
+                oauth._expires_at = 0  # force refresh
+                await oauth._refresh_if_needed()
+                retries += 1
+                if retries > MAX_RETRIES:
+                    return False, "auth_failed"
+                continue
+
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("retry-after", "5"))
+                log.warning("429 Rate limited — backing off %ds", retry_after)
+                await asyncio.sleep(retry_after)
+                retries += 1
+                if retries > MAX_RETRIES:
+                    return False, "rate_limited"
+                continue
+
+            if resp.status_code >= 500:
+                log.warning("Server error %d — retrying", resp.status_code)
+                await asyncio.sleep(2 ** retries)
+                retries += 1
+                if retries > MAX_RETRIES:
+                    return False, f"server_error_{resp.status_code}"
+                continue
+
+            resp.raise_for_status()
+            retries = 0  # reset on success
+
+        except asyncio.TimeoutError:
+            log.error("API call timed out after %ds", timeout)
+            return False, "timeout"
+        except httpx.ConnectError as e:
+            log.error("Connection error: %s", e)
+            retries += 1
+            if retries > MAX_RETRIES:
+                return False, "connection_error"
+            await asyncio.sleep(2 ** retries)
+            continue
+        except Exception as e:
+            log.error("API request error: %s", e)
+            return False, str(e)
+
+        data = resp.json()
+        stop_reason = data.get("stop_reason")
+        content = data.get("content", [])
+
+        # Append assistant response to messages
+        messages.append({"role": "assistant", "content": content})
+
+        if stop_reason == "tool_use":
+            # Dispatch all tool calls
+            tool_results = []
+            for block in content:
+                if block.get("type") == "tool_use":
+                    tool_name = block["name"]
+                    tool_input = block["input"]
+                    log.info("Tool call [%d]: %s", iteration + 1, tool_name)
+                    try:
+                        result = await dispatch_tool(tool_name, tool_input)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block["id"],
+                            "content": result,
+                        })
+                    except Exception as e:
+                        log.error("Tool %s failed: %s", tool_name, e, exc_info=True)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block["id"],
+                            "content": json.dumps({"error": str(e)}, ensure_ascii=False),
+                            "is_error": True,
+                        })
+
+            messages.append({"role": "user", "content": tool_results})
+            continue
+
+        # end_turn or max_tokens → extract final text
+        final_text = "".join(
+            b["text"] for b in content if b.get("type") == "text"
+        )
+        log.info("API completed (iterations=%d, stop=%s)", iteration + 1, stop_reason)
+        return True, final_text
+
+    log.warning("Reached max tool iterations (%d)", MAX_TOOL_ITERATIONS)
+    return False, "max_iterations"
 
 
 # ---------------------------------------------------------------------------
@@ -523,7 +428,7 @@ async def process_one() -> bool:
             if output != "timeout":
                 await tg.send_message(
                     chat_id,
-                    "⚠️ 메시지 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+                    "\u26a0\ufe0f 메시지 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
                 )
             else:
                 log.info("Timeout failure — will be auto-retried on next cycle")
@@ -533,7 +438,7 @@ async def process_one() -> bool:
         log.error("Unexpected error processing queue_ids=%s: %s", all_queue_ids, e, exc_info=True)
         for qid in all_queue_ids:
             await db.fail_message(qid, str(e))
-        await tg.send_message(chat_id, "⚠️ 내부 오류가 발생했습니다.")
+        await tg.send_message(chat_id, "\u26a0\ufe0f 내부 오류가 발생했습니다.")
 
     finally:
         if lock_acquired:
@@ -548,7 +453,6 @@ async def process_one() -> bool:
 
 async def main():
     require_env()
-    WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
     log.info(
         "Starting message worker (poll=%ds, simple=%ds, complex=%ds, retries=%d)...",
         POLL_INTERVAL, CLAUDE_TIMEOUT_SIMPLE, CLAUDE_TIMEOUT_COMPLEX, MAX_RETRIES,
@@ -579,6 +483,10 @@ async def main():
         log.info("Worker shutting down...")
     finally:
         release_lock()
+        # Close shared clients
+        global _api_client
+        if _api_client and not _api_client.is_closed:
+            await _api_client.aclose()
         await db.close()
         log.info("Worker stopped.")
 
