@@ -20,18 +20,23 @@ def _mask_token(text: str) -> str:
     return str(text)
 
 
-async def send_message(chat_id: int, text: str, parse_mode: str | None = "Markdown") -> bool:
+async def send_message(
+    chat_id: int, text: str, parse_mode: str | None = "Markdown",
+) -> int | None:
     """Send a text message, auto-splitting if > 4096 chars.
 
     Args:
         parse_mode: "Markdown", "MarkdownV2", "HTML", or None for plain text.
                     When set, falls back to plain text on parse failure.
+
+    Returns:
+        message_id of the last sent chunk, or None on failure.
     """
     if not text:
-        return False
+        return None
 
     chunks = _split_message(text)
-    success = True
+    message_id = None
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         for chunk in chunks:
@@ -43,17 +48,59 @@ async def send_message(chat_id: int, text: str, parse_mode: str | None = "Markdo
                 resp = await client.post(f"{_BASE_URL}/sendMessage", json=payload)
 
                 if resp.status_code != 200 and parse_mode:
-                    # Retry without parse_mode on formatting failure
                     resp = await client.post(
                         f"{_BASE_URL}/sendMessage",
                         json={"chat_id": chat_id, "text": chunk},
                     )
                 resp.raise_for_status()
+                data = resp.json()
+                if data.get("ok"):
+                    message_id = data["result"]["message_id"]
             except Exception as e:
                 log.error("Failed to send message to chat_id=%s: %s", chat_id, _mask_token(str(e)))
-                success = False
 
-    return success
+    return message_id
+
+
+async def edit_message(
+    chat_id: int, message_id: int, text: str, parse_mode: str | None = "Markdown",
+) -> bool:
+    """Edit an existing message.
+
+    Falls back to plain text on parse failure.
+    If text exceeds 4096 chars, truncates with ellipsis.
+    """
+    if not text:
+        return False
+
+    # Telegram editMessageText has 4096 char limit, no multi-message edit
+    if len(text) > MAX_MESSAGE_LENGTH:
+        text = text[: MAX_MESSAGE_LENGTH - 3] + "..."
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            payload = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+            }
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
+
+            resp = await client.post(f"{_BASE_URL}/editMessageText", json=payload)
+
+            if resp.status_code != 200 and parse_mode:
+                payload.pop("parse_mode")
+                resp = await client.post(f"{_BASE_URL}/editMessageText", json=payload)
+
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            log.error(
+                "Failed to edit message %s in chat_id=%s: %s",
+                message_id, chat_id, _mask_token(str(e)),
+            )
+            return False
 
 
 async def send_file(chat_id: int, file_path: str) -> bool:

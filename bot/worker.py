@@ -395,15 +395,15 @@ async def process_one() -> bool:
         await db.fail_message(queue_id, "unauthorized_chat_id")
         return True
 
-    # Send typing indicator
-    await tg.send_typing_action(chat_id)
-
     # Batch messages from the same chat
     combined_content, extra_queue_ids = await drain_messages(chat_id, content)
     all_queue_ids = [queue_id] + extra_queue_ids
 
     if extra_queue_ids:
         log.info("Batched %d messages for chat_id=%s", len(all_queue_ids), chat_id)
+
+    # Send placeholder immediately (respond first, edit later)
+    placeholder_id = await tg.send_message(chat_id, "🔄 처리 중...", parse_mode=None)
 
     lock_acquired = False
     try:
@@ -412,6 +412,8 @@ async def process_one() -> bool:
             log.info("Another worker is running, requeueing messages")
             for qid in all_queue_ids:
                 await db.requeue_message(qid)
+            if placeholder_id:
+                await tg.edit_message(chat_id, placeholder_id, "⏳ 잠시만 기다려주세요...", parse_mode=None)
             return True
 
         success, output = await run_claude(combined_content, chat_id)
@@ -419,18 +421,27 @@ async def process_one() -> bool:
         if success:
             for qid in all_queue_ids:
                 await db.complete_message(qid)
+            # Edit placeholder with final response (or send new if edit fails/too long)
+            if placeholder_id and len(output) <= 4096:
+                await tg.edit_message(chat_id, placeholder_id, output)
+            else:
+                # Delete-ish: edit placeholder to minimal, then send full response
+                if placeholder_id:
+                    await tg.edit_message(chat_id, placeholder_id, "✅", parse_mode=None)
+                await tg.send_message(chat_id, output)
             log.info("Messages processed successfully queue_ids=%s", all_queue_ids)
         else:
             for qid in all_queue_ids:
                 await db.fail_message(qid, output)
-            # Only send error message for non-timeout failures
-            # Timeout failures will be auto-retried
             if output != "timeout":
-                await tg.send_message(
-                    chat_id,
-                    "\u26a0\ufe0f 메시지 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
-                )
+                error_text = "⚠️ 메시지 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+                if placeholder_id:
+                    await tg.edit_message(chat_id, placeholder_id, error_text, parse_mode=None)
+                else:
+                    await tg.send_message(chat_id, error_text)
             else:
+                if placeholder_id:
+                    await tg.edit_message(chat_id, placeholder_id, "⏳ 재시도 중...", parse_mode=None)
                 log.info("Timeout failure — will be auto-retried on next cycle")
             log.error("Message processing failed queue_ids=%s: %s", all_queue_ids, output[:100])
 
@@ -438,7 +449,10 @@ async def process_one() -> bool:
         log.error("Unexpected error processing queue_ids=%s: %s", all_queue_ids, e, exc_info=True)
         for qid in all_queue_ids:
             await db.fail_message(qid, str(e))
-        await tg.send_message(chat_id, "\u26a0\ufe0f 내부 오류가 발생했습니다.")
+        if placeholder_id:
+            await tg.edit_message(chat_id, placeholder_id, "⚠️ 내부 오류가 발생했습니다.", parse_mode=None)
+        else:
+            await tg.send_message(chat_id, "⚠️ 내부 오류가 발생했습니다.")
 
     finally:
         if lock_acquired:

@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY bot/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy only bot code (no SSH keys, no other projects)
+COPY bot/ bot/
+
+CMD ["python", "-m", "bot.worker"]

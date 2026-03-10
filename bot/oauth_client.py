@@ -14,7 +14,7 @@ import httpx
 log = logging.getLogger("secretary.oauth")
 
 CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
-REFRESH_URL = "https://platform.claude.com/api/oauth/token"
+REFRESH_URL = "https://platform.claude.com/v1/oauth/token"
 REFRESH_MARGIN = 300  # refresh 5 minutes before expiry
 
 
