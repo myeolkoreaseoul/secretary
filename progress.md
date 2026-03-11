@@ -123,3 +123,13 @@
 - Brazilian Phonk 프롬프트 생성기 통합: Suno AI용 7장르 프롬프트 생성기를 /phonk 페이지로 추가. generate.sh→TS 포팅, 장르 균등배분, djb2 해시 중복방지, localStorage 히스토리, SlackNav phonk 모드+사이드바
 - Pixel Office 엔진 포팅 완료 (Pixel Agents 오픈소스 기반): Canvas 2D 픽셀아트 사무실, OfficeState 캐릭터 상태관리, Z-sorted 렌더링, Matrix spawn/despawn, BFS 경로탐색, HiDPI+줌/패닝. 14파일 3941줄
 - Pixel Office 레이아웃 확장: 26x14 사무실 (좌석 20개), 프로젝트 15개 자리 고정, active/paused 라벨 색상 구분
+
+## 2026-03-11: OAuth 토큰 독살 근본 해결
+- **문제**: Anthropic OAuth refresh token rotation + reuse detection으로 인해, Secretary가 직접 HTTP refresh하면 토큰 패밀리 전체 revoke
+- **해결**: passive consumer 패턴 — HTTP refresh 전면 제거, 디스크 읽기 전용
+- oauth_client.py: mark_server_rejected(), poll cooldown, fcntl file locking, JSONDecodeError retry
+- credential_watcher.py (신규): watchfiles(inotify)로 credentials.json 변경 즉시 감지
+- worker.py: 401 시 mark_server_rejected + reload_from_disk만 호출
+- QA 10건 이슈 수정 (자체+Codex+Ralph 20회)
+- 프로덕션 테스트 4/6 통과 (기본동작, inotify, 401시뮬, settlement-qna)
+- 장시간 안정성 모니터링 진행 중
