@@ -23,6 +23,7 @@ from bot.config import (
     ANTHROPIC_API_URL,
 )
 from bot.oauth_client import oauth
+from bot.credential_watcher import watch_credentials
 from bot.mcp_server import TOOL_DEFINITIONS, dispatch_tool
 from bot import supabase_client as db
 from bot import telegram_sender as tg
@@ -174,14 +175,14 @@ async def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
 
             # Handle HTTP errors with retry logic
             if resp.status_code == 401:
-                log.warning("401 Unauthorized — forcing token refresh (attempt %d/%d)", retries + 1, MAX_RETRIES)
-                oauth._expires_at = 0  # force refresh
-                await oauth._refresh_if_needed()
                 retries += 1
+                log.warning("401 Unauthorized — marking token rejected, reloading from disk (attempt %d/%d)", retries, MAX_RETRIES)
+                oauth.mark_server_rejected()
+                oauth.reload_from_disk()
                 if retries > MAX_RETRIES:
                     return False, "auth_failed"
                 # Exponential backoff before retry
-                await asyncio.sleep(min(2 ** retries, 30))
+                await asyncio.sleep(min(2 ** retries, 8))
                 continue
 
             if resp.status_code == 429:
@@ -520,6 +521,13 @@ async def main():
         return
 
     try:
+        # Start credential file watcher (background task)
+        watcher_task = asyncio.create_task(watch_credentials(oauth))
+        watcher_task.add_done_callback(
+            lambda t: log.error("Credential watcher died: %s", t.exception())
+            if not t.cancelled() and t.exception() else None
+        )
+
         # Recover zombie messages (only old ones, after lock acquired)
         await recover_zombie_messages()
 
@@ -534,7 +542,7 @@ async def main():
                 # If OAuth is unhealthy, back off and reload before processing
                 if not oauth.is_healthy:
                     log.warning("OAuth unhealthy — reloading credentials from disk")
-                    oauth._load_credentials()
+                    oauth.reload_from_disk()
                     await asyncio.sleep(30)
                     continue
 
@@ -553,6 +561,7 @@ async def main():
     except KeyboardInterrupt:
         log.info("Worker shutting down...")
     finally:
+        watcher_task.cancel()
         release_lock()
         # Close shared clients
         global _api_client
