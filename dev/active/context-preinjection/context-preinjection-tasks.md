@@ -1,0 +1,5 @@
+- [x] 섹션 1: mcp_server.py — 로직 추출 + TOOL_DEFINITIONS 정리
+- [x] 섹션 2: worker.py — context 사전 주입 + 후처리
+- [x] 섹션 3: CLAUDE_FULL.md — 프롬프트 개편
+- [x] 섹션 4: CLAUDE_SIMPLE.md — 프롬프트 개편
+- [x] 최종 리뷰

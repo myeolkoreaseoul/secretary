@@ -14,9 +14,15 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+
+# MCP imports — optional (only needed when running as standalone MCP server)
+try:
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
+    from mcp.types import Tool, TextContent
+    _HAS_MCP = True
+except ImportError:
+    _HAS_MCP = False
 
 # Ensure bot package is importable
 from pathlib import Path
@@ -31,7 +37,7 @@ WORKSPACE_DIR = Path("/home/john/projects/workspace")
 
 log = logging.getLogger("secretary.mcp")
 
-server = Server("secretary")
+server = Server("secretary") if _HAS_MCP else None
 
 # ---------------------------------------------------------------------------
 # Weather code → Korean description
@@ -66,39 +72,176 @@ _CITY_COORDS = {
 # Tool Definitions
 # ---------------------------------------------------------------------------
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="prepare_context",
-            description="유저 메시지를 DB에 저장하고, 최근 대화 히스토리와 관련 과거 맥락을 한번에 조회합니다. 항상 이 도구를 먼저 호출하세요.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "chat_id": {"type": "integer", "description": "텔레그램 chat_id"},
-                    "content": {"type": "string", "description": "유저 메시지 내용"},
-                    "telegram_message_id": {"type": "integer", "description": "텔레그램 메시지 ID (선택)"},
-                },
-                "required": ["chat_id", "content"],
+# ---------------------------------------------------------------------------
+# Anthropic API tool definitions (for direct API calls from worker.py)
+# ---------------------------------------------------------------------------
+
+TOOL_DEFINITIONS = [
+    {
+        "name": "add_todo",
+        "description": "할일을 추가합니다. 플래닝 시 estimated_minutes와 time_hint도 함께 설정하세요.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "할일 제목"},
+                "category": {"type": "string", "description": "카테고리명 (선택)"},
+                "due_date": {"type": "string", "description": "마감일 YYYY-MM-DD (선택)"},
+                "priority": {"type": "integer", "description": "우선순위 0~5 (기본: 0)"},
+                "estimated_minutes": {"type": "integer", "description": "예상 소요시간(분). AI가 추정 (선택)"},
+                "time_hint": {"type": "string", "description": "시간 힌트: '오전', '15:00', '점심 후' 등 (선택)"},
             },
-        ),
-        Tool(
-            name="respond_and_classify",
-            description="답변을 텔레그램으로 전송하고, 봇 응답을 저장하고, 메시지를 분류합니다. prepare_context 후에 호출하세요.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "chat_id": {"type": "integer", "description": "텔레그램 chat_id"},
-                    "message_id": {"type": "string", "description": "prepare_context에서 받은 user_message_id"},
-                    "response_text": {"type": "string", "description": "유저에게 보낼 답변"},
-                    "classification": {
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "get_weather",
+        "description": "실시간 날씨와 24시간 예보를 조회합니다. 한국 주요 도시를 지원합니다.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string", "description": "도시명 (예: 서울, 부산, 제주). 기본값: 서울"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "web_search",
+        "description": "웹 검색을 수행합니다. 날씨 외 실시간 정보(뉴스, 환율, 맛집, 일정 등)를 조회할 때 사용하세요.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "검색어"},
+                "max_results": {"type": "integer", "description": "결과 수 (기본: 5, 최대: 10)"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "send_progress",
+        "description": "코딩/빌드 작업 중 진행 상황을 텔레그램으로 전송합니다. 장시간 작업 시 중간 보고에 사용하세요.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": "integer", "description": "텔레그램 chat_id"},
+                "status": {"type": "string", "description": "진행 상황 메시지 (예: 'CSS 적용 중...')"},
+                "percent": {"type": "integer", "description": "진행률 0~100 (선택)"},
+            },
+            "required": ["chat_id", "status"],
+        },
+    },
+    {
+        "name": "send_file",
+        "description": "서버의 파일을 텔레그램으로 전송합니다. workspace 내 파일만 허용됩니다.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": "integer", "description": "텔레그램 chat_id"},
+                "file_path": {"type": "string", "description": "전송할 파일 경로 (workspace 내)"},
+                "caption": {"type": "string", "description": "파일 설명 (선택)"},
+            },
+            "required": ["chat_id", "file_path"],
+        },
+    },
+    {
+        "name": "get_pending_messages",
+        "description": "작업 중 새 메시지가 도착했는지 확인합니다. 장시간 코딩 작업 중 새 지시를 확인할 때 사용하세요.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": "integer", "description": "텔레그램 chat_id"},
+            },
+            "required": ["chat_id"],
+        },
+    },
+    {
+        "name": "get_daily_plan",
+        "description": "오늘(또는 지정 날짜)의 계획, 할일, 어제 리뷰를 조회합니다. 플래닝 시 가장 먼저 호출하세요.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date": {"type": "string", "description": "날짜 YYYY-MM-DD (기본: 오늘)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "save_daily_plan",
+        "description": "AI가 생성한 시간표를 저장합니다. 타임블록 배치가 완료되면 호출하세요.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date": {"type": "string", "description": "날짜 YYYY-MM-DD"},
+                "plan": {
+                    "type": "array",
+                    "description": "타임블록 배열 [{start, end, task, category, priority}]",
+                    "items": {
                         "type": "object",
-                        "description": "분류 결과: {category, title, summary, advice, entities[]}",
+                        "properties": {
+                            "start": {"type": "string", "description": "시작 HH:MM"},
+                            "end": {"type": "string", "description": "종료 HH:MM"},
+                            "task": {"type": "string", "description": "할일 내용"},
+                            "category": {"type": "string", "description": "카테고리"},
+                            "priority": {"type": "integer", "description": "우선순위 0~3"},
+                        },
+                        "required": ["start", "end", "task"],
                     },
                 },
-                "required": ["chat_id", "message_id", "response_text", "classification"],
+                "plan_text": {"type": "string", "description": "오늘의 핵심 목표 한줄 요약"},
             },
-        ),
+            "required": ["date", "plan"],
+        },
+    },
+    {
+        "name": "update_plan_block",
+        "description": "기존 계획의 특정 블록을 수정/삭제/삽입합니다. 수시 변경에 사용하세요.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date": {"type": "string", "description": "날짜 YYYY-MM-DD (기본: 오늘)"},
+                "action": {
+                    "type": "string",
+                    "enum": ["delete", "update", "insert"],
+                    "description": "delete: 블록 삭제, update: 블록 수정, insert: 새 블록 삽입",
+                },
+                "target_start": {"type": "string", "description": "대상 블록의 시작 시간 HH:MM (delete/update 시 필수)"},
+                "block": {
+                    "type": "object",
+                    "description": "새/수정 블록 {start, end, task, category, priority} (update/insert 시 필수)",
+                    "properties": {
+                        "start": {"type": "string"},
+                        "end": {"type": "string"},
+                        "task": {"type": "string"},
+                        "category": {"type": "string"},
+                        "priority": {"type": "integer"},
+                    },
+                },
+            },
+            "required": ["action"],
+        },
+    },
+]
+
+
+async def dispatch_tool(name: str, arguments: dict) -> str:
+    """Dispatch a tool call from worker.py. Wraps _dispatch() with JSON serialization."""
+    result = await _dispatch(name, arguments)
+    return json.dumps(result, ensure_ascii=False, default=str)
+
+
+# ---------------------------------------------------------------------------
+# MCP Server Tool Registration (only when running as standalone MCP server)
+# ---------------------------------------------------------------------------
+
+def _noop_decorator(func):
+    return func
+
+_list_tools_decorator = server.list_tools() if server else _noop_decorator
+_call_tool_decorator = server.call_tool() if server else _noop_decorator
+
+
+@_list_tools_decorator
+async def list_tools() -> list:
+    return [
         Tool(
             name="add_todo",
             description="할일을 추가합니다. 플래닝 시 estimated_minutes와 time_hint도 함께 설정하세요.",
@@ -244,8 +387,8 @@ async def list_tools() -> list[Tool]:
     ]
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+@_call_tool_decorator
+async def call_tool(name: str, arguments: dict) -> list:
     try:
         result = await _dispatch(name, arguments)
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, default=str))]
@@ -275,6 +418,74 @@ def _validate_chat_id(chat_id: int) -> bool:
     return chat_id in TELEGRAM_ALLOWED_USERS
 
 
+async def run_prepare_context(chat_id: int, content: str, telegram_message_id: int | None = None) -> dict:
+    """Prepare context — callable directly from worker (no tool call needed)."""
+    save_task = db.save_message(
+        chat_id=chat_id, role="user", content=content,
+        telegram_message_id=telegram_message_id,
+    )
+    history_task = db.get_recent_messages(chat_id, 24)
+    embed_task = emb.generate_embedding(content)
+    categories_task = db.get_categories()
+
+    msg, history, vec, categories = await asyncio.gather(
+        save_task, history_task, embed_task, categories_task
+    )
+
+    if vec:
+        await db.save_embedding("telegram_messages", msg["id"], vec, emb.get_model_name())
+
+    asyncio.create_task(_classify_and_save(msg["id"], content))
+
+    similar = []
+    if vec:
+        similar = await db.search_similar(vec)
+
+    formatted_history = [
+        {"role": m["role"], "content": m["content"][:500], "created_at": m["created_at"]}
+        for m in history
+    ]
+    cat_list = [{"id": c["id"], "name": c["name"], "color": c.get("color")} for c in categories]
+
+    return {
+        "user_message_id": msg["id"],
+        "history": formatted_history,
+        "history_count": len(formatted_history),
+        "relevant_context": similar[:10],
+        "categories": cat_list,
+        "has_embedding": vec is not None,
+    }
+
+
+async def run_respond_and_classify(
+    chat_id: int, message_id: str, response_text: str, classification: dict,
+    skip_telegram: bool = False,
+) -> dict:
+    """Respond + classify — callable directly from worker.
+
+    skip_telegram=True when worker already sent the message to Telegram.
+    """
+    send_ok = None
+    if not skip_telegram:
+        send_ok = await tg.send_message(chat_id, response_text)
+
+    save_task = db.save_message(chat_id=chat_id, role="assistant", content=response_text)
+    classify_task = db.save_classification(message_id, classification)
+    embed_task = emb.generate_embedding(response_text)
+
+    msg, _, vec = await asyncio.gather(save_task, classify_task, embed_task)
+
+    if vec:
+        await db.save_embedding("telegram_messages", msg["id"], vec, emb.get_model_name())
+
+    return {
+        "sent": send_ok,
+        "bot_message_id": msg["id"],
+        "classified": True,
+        "has_embedding": vec is not None,
+    }
+
+
 async def _dispatch(name: str, args: dict) -> dict:
     """Route tool calls to implementations."""
 
@@ -286,87 +497,19 @@ async def _dispatch(name: str, args: dict) -> dict:
             return {"error": "unauthorized"}
 
     if name == "prepare_context":
-        chat_id = args["chat_id"]
-        content = args["content"]
-
-        # Run save + history + embedding in parallel
-        save_task = db.save_message(
-            chat_id=chat_id,
-            role="user",
-            content=content,
+        return await run_prepare_context(
+            chat_id=args["chat_id"],
+            content=args["content"],
             telegram_message_id=args.get("telegram_message_id"),
         )
-        history_task = db.get_recent_messages(chat_id, 24)
-        embed_task = emb.generate_embedding(content)
-        categories_task = db.get_categories()
-
-        msg, history, vec, categories = await asyncio.gather(
-            save_task, history_task, embed_task, categories_task
-        )
-
-        # Save embedding if generated
-        if vec:
-            await db.save_embedding("telegram_messages", msg["id"], vec, emb.get_model_name())
-
-        # Fire-and-forget Gemini classification (user role only)
-        asyncio.create_task(_classify_and_save(msg["id"], content))
-
-        # Vector search with the embedding
-        similar = []
-        if vec:
-            similar = await db.search_similar(vec)
-
-        # Format history
-        formatted_history = []
-        for m in history:
-            formatted_history.append({
-                "role": m["role"],
-                "content": m["content"][:500],
-                "created_at": m["created_at"],
-            })
-
-        # Format categories
-        cat_list = [{"id": c["id"], "name": c["name"], "color": c.get("color")} for c in categories]
-
-        return {
-            "user_message_id": msg["id"],
-            "history": formatted_history,
-            "history_count": len(formatted_history),
-            "relevant_context": similar[:10],
-            "categories": cat_list,
-            "has_embedding": vec is not None,
-        }
 
     elif name == "respond_and_classify":
-        chat_id = args["chat_id"]
-        response_text = args["response_text"]
-        message_id = args["message_id"]
-        classification = args["classification"]
-
-        # Send telegram message first (user sees response ASAP)
-        send_ok = await tg.send_message(chat_id, response_text)
-
-        # Then save + classify + embed in parallel
-        save_task = db.save_message(
-            chat_id=chat_id,
-            role="assistant",
-            content=response_text,
+        return await run_respond_and_classify(
+            chat_id=args["chat_id"],
+            message_id=args["message_id"],
+            response_text=args["response_text"],
+            classification=args["classification"],
         )
-        classify_task = db.save_classification(message_id, classification)
-        embed_task = emb.generate_embedding(response_text)
-
-        msg, _, vec = await asyncio.gather(save_task, classify_task, embed_task)
-
-        # Save bot response embedding
-        if vec:
-            await db.save_embedding("telegram_messages", msg["id"], vec, emb.get_model_name())
-
-        return {
-            "sent": send_ok,
-            "bot_message_id": msg["id"],
-            "classified": True,
-            "has_embedding": vec is not None,
-        }
 
     elif name == "add_todo":
         category_id = None

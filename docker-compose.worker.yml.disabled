@@ -1,0 +1,17 @@
+services:
+  secretary-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: secretary-worker
+    restart: unless-stopped
+    env_file:
+      - bot/.env
+    volumes:
+      # OAuth token — read-write for token refresh
+      - /home/john/.claude/.credentials.json:/root/.claude/.credentials.json
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
