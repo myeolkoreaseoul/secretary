@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 import httpx
@@ -129,82 +130,218 @@ def release_lock() -> None:
 # Anthropic API Execution (agentic tool_use loop)
 # ---------------------------------------------------------------------------
 
-async def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
-    """Call Anthropic Messages API with agentic tool_use loop.
+def _build_context_block(history: list, relevant_context: list, categories: list) -> str:
+    """Build context text to inject into system prompt."""
+    parts = ["## 현재 컨텍스트\n"]
+    if history:
+        parts.append("### 최근 대화 히스토리")
+        for h in history[-10:]:
+            parts.append(f"- [{h['role']}] {h['content'][:500]}")
+    if relevant_context:
+        parts.append("\n### 관련 과거 맥락")
+        for r in relevant_context[:5]:
+            content = r.get("content", "")
+            if content:
+                parts.append(f"- {content[:200]}")
+    if categories:
+        parts.append("\n### 사용 가능한 카테고리")
+        parts.append(", ".join(c["name"] for c in categories))
+    return "\n".join(parts)
 
-    Returns (success, output).
-    Routes to Haiku (simple) or Opus (complex) based on message content.
-    Handles tool_use responses by dispatching to mcp_server tools.
+
+def _parse_response(text: str) -> tuple[str, dict]:
+    """Split sub-model output into response text and classification JSON."""
+    # 1) ```json ... ``` block
+    match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if match:
+        try:
+            classification = json.loads(match.group(1))
+            response_text = text[:match.start()].strip()
+            if response_text:
+                return response_text, classification
+        except json.JSONDecodeError:
+            pass
+
+    # 2) Fallback: last {...} containing "category"
+    match = re.search(r'\{[^{}]*"category"[^{}]*\}', text, re.DOTALL)
+    if match:
+        try:
+            classification = json.loads(match.group())
+            response_text = text[:match.start()].strip()
+            if response_text:
+                return response_text, classification
+        except json.JSONDecodeError:
+            pass
+
+    # 3) Default classification
+    return text, {"category": "기타", "title": "미분류", "summary": text[:50], "advice": "", "entities": []}
+
+
+STREAM_THROTTLE = 1.5  # seconds between Telegram edits during streaming
+
+
+async def run_claude(
+    message_content: str, chat_id: int, on_stream=None,
+) -> tuple[bool, str]:
+    """Call Anthropic Messages API with streaming + agentic tool_use loop.
+
+    Returns (success, response_text).
+    Pre-injects context into system prompt (no prepare_context tool call).
+    Post-processes: parses classification JSON, saves to DB (fire-and-forget).
+    on_stream: async callback(text) called periodically with accumulated text.
     """
+    from bot.mcp_server import run_prepare_context, run_respond_and_classify
+
     model = _get_model(message_content)
     timeout = _get_timeout(message_content)
     system_prompt_path = CLAUDE_MD_FULL if model == CLAUDE_MODEL_COMPLEX else CLAUDE_MD_SIMPLE
-    system_prompt = system_prompt_path.read_text()
 
-    prompt = (
-        f"새 텔레그램 메시지가 도착했습니다.\n"
-        f"chat_id: {chat_id}\n"
-        f"메시지 내용:\n{message_content}\n\n"
-        f"위 워크플로우에 따라 처리해주세요."
-    )
+    # Context pre-injection: run prepare_context directly (saves API round-trip)
+    ctx = await run_prepare_context(chat_id, message_content)
+    user_message_id = ctx["user_message_id"]
 
-    messages = [{"role": "user", "content": prompt}]
+    base_prompt = system_prompt_path.read_text()
+    context_block = _build_context_block(ctx["history"], ctx["relevant_context"], ctx["categories"])
+    system_prompt = base_prompt + "\n\n" + context_block
 
-    log.info("Calling Anthropic API (model=%s, timeout=%ds)", model, timeout)
+    messages = [{"role": "user", "content": message_content}]
+
+    log.info("Calling Anthropic API (model=%s, timeout=%ds, stream=true)", model, timeout)
 
     client = _get_api_client()
     retries = 0
 
     for iteration in range(MAX_TOOL_ITERATIONS):
+        # Per-iteration state
+        stream_text = ""
+        content_blocks = []
+        tool_blocks = []
+        block_text = ""
+        current_block_type = None
+        current_tool_id = None
+        current_tool_name = None
+        current_tool_json = ""
+        stop_reason = None
+        last_stream_time = 0.0
+
         try:
             headers = await oauth.get_headers()
-            resp = await asyncio.wait_for(
-                client.post(
-                    ANTHROPIC_API_URL,
-                    headers=headers,
-                    json={
-                        "model": model,
-                        "max_tokens": 4096,
-                        "system": system_prompt,
-                        "messages": messages,
-                        "tools": TOOL_DEFINITIONS,
-                    },
-                ),
-                timeout=timeout,
-            )
+            body = {
+                "model": model,
+                "max_tokens": 4096,
+                "system": system_prompt,
+                "messages": messages,
+                "tools": TOOL_DEFINITIONS,
+                "stream": True,
+            }
 
-            # Handle HTTP errors with retry logic
-            if resp.status_code == 401:
-                retries += 1
-                log.warning("401 Unauthorized — marking token rejected, reloading from disk (attempt %d/%d)", retries, MAX_RETRIES)
-                oauth.mark_server_rejected()
-                oauth.reload_from_disk()
-                if retries > MAX_RETRIES:
-                    return False, "auth_failed"
-                # Exponential backoff before retry
-                await asyncio.sleep(min(2 ** retries, 8))
-                continue
+            async with client.stream(
+                "POST", ANTHROPIC_API_URL,
+                headers=headers, json=body,
+                timeout=httpx.Timeout(timeout, connect=30.0),
+            ) as resp:
+                # Handle HTTP errors
+                if resp.status_code == 401:
+                    await resp.aread()
+                    retries += 1
+                    log.warning("401 Unauthorized (attempt %d/%d)", retries, MAX_RETRIES)
+                    oauth.mark_server_rejected()
+                    oauth.reload_from_disk()
+                    if retries > MAX_RETRIES:
+                        return False, "auth_failed"
+                    await asyncio.sleep(min(2 ** retries, 8))
+                    continue
 
-            if resp.status_code == 429:
-                # US-010 fix: safe parsing of retry-after header
-                retry_after = _safe_int(resp.headers.get("retry-after", "5"))
-                log.warning("429 Rate limited — backing off %ds", retry_after)
-                await asyncio.sleep(retry_after)
-                retries += 1
-                if retries > MAX_RETRIES:
-                    return False, "rate_limited"
-                continue
+                if resp.status_code == 429:
+                    await resp.aread()
+                    retry_after = _safe_int(resp.headers.get("retry-after", "5"))
+                    log.warning("429 Rate limited — backing off %ds", retry_after)
+                    await asyncio.sleep(retry_after)
+                    retries += 1
+                    if retries > MAX_RETRIES:
+                        return False, "rate_limited"
+                    continue
 
-            if resp.status_code >= 500:
-                log.warning("Server error %d — retrying", resp.status_code)
-                await asyncio.sleep(2 ** retries)
-                retries += 1
-                if retries > MAX_RETRIES:
-                    return False, f"server_error_{resp.status_code}"
-                continue
+                if resp.status_code >= 500:
+                    await resp.aread()
+                    log.warning("Server error %d — retrying", resp.status_code)
+                    await asyncio.sleep(2 ** retries)
+                    retries += 1
+                    if retries > MAX_RETRIES:
+                        return False, f"server_error_{resp.status_code}"
+                    continue
 
-            resp.raise_for_status()
-            retries = 0  # reset on success
+                if resp.status_code != 200:
+                    await resp.aread()
+                    log.error("Unexpected status %d", resp.status_code)
+                    return False, f"http_{resp.status_code}"
+
+                retries = 0
+
+                # Parse SSE stream
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    raw = line[6:]
+                    if raw == "[DONE]":
+                        break
+
+                    try:
+                        event = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+
+                    etype = event.get("type")
+
+                    if etype == "content_block_start":
+                        block = event.get("content_block", {})
+                        current_block_type = block.get("type")
+                        if current_block_type == "tool_use":
+                            current_tool_id = block.get("id")
+                            current_tool_name = block.get("name")
+                            current_tool_json = ""
+                        elif current_block_type == "text":
+                            block_text = ""
+
+                    elif etype == "content_block_delta":
+                        delta = event.get("delta", {})
+                        if delta.get("type") == "text_delta":
+                            chunk = delta.get("text", "")
+                            block_text += chunk
+                            stream_text += chunk
+                            # Throttled stream update
+                            if on_stream:
+                                now = time.monotonic()
+                                if now - last_stream_time >= STREAM_THROTTLE:
+                                    try:
+                                        await on_stream(stream_text)
+                                    except Exception as e:
+                                        log.warning("Stream update failed: %s", e)
+                                    last_stream_time = now
+                        elif delta.get("type") == "input_json_delta":
+                            current_tool_json += delta.get("partial_json", "")
+
+                    elif etype == "content_block_stop":
+                        if current_block_type == "text":
+                            content_blocks.append({"type": "text", "text": block_text})
+                        elif current_block_type == "tool_use":
+                            try:
+                                tool_input = json.loads(current_tool_json) if current_tool_json else {}
+                            except json.JSONDecodeError:
+                                tool_input = {}
+                            content_blocks.append({
+                                "type": "tool_use", "id": current_tool_id,
+                                "name": current_tool_name, "input": tool_input,
+                            })
+                            tool_blocks.append({
+                                "id": current_tool_id,
+                                "name": current_tool_name,
+                                "input": tool_input,
+                            })
+                        current_block_type = None
+
+                    elif etype == "message_delta":
+                        stop_reason = event.get("delta", {}).get("stop_reason")
 
         except asyncio.TimeoutError:
             log.error("API call timed out after %ds", timeout)
@@ -220,51 +357,62 @@ async def run_claude(message_content: str, chat_id: int) -> tuple[bool, str]:
             log.error("API request error: %s", e)
             return False, str(e)
 
-        data = resp.json()
-        stop_reason = data.get("stop_reason")
-        content = data.get("content", [])
-
-        # Append assistant response to messages
-        messages.append({"role": "assistant", "content": content})
+        # Build assistant message for conversation history
+        messages.append({"role": "assistant", "content": content_blocks})
 
         if stop_reason == "tool_use":
-            # Dispatch all tool calls
             tool_results = []
-            for block in content:
-                if block.get("type") == "tool_use":
-                    tool_name = block["name"]
-                    tool_input = block["input"]
-                    log.info("Tool call [%d]: %s", iteration + 1, tool_name)
-                    try:
-                        result = await dispatch_tool(tool_name, tool_input)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block["id"],
-                            "content": result,
-                        })
-                    except Exception as e:
-                        log.error("Tool %s failed: %s", tool_name, e, exc_info=True)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block["id"],
-                            "content": json.dumps({"error": str(e)}, ensure_ascii=False),
-                            "is_error": True,
-                        })
+            for tool in tool_blocks:
+                log.info("Tool call [%d]: %s", iteration + 1, tool["name"])
+                try:
+                    result = await dispatch_tool(tool["name"], tool["input"])
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tool["id"],
+                        "content": result,
+                    })
+                except Exception as e:
+                    log.error("Tool %s failed: %s", tool["name"], e, exc_info=True)
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tool["id"],
+                        "content": json.dumps({"error": str(e)}, ensure_ascii=False),
+                        "is_error": True,
+                    })
 
-            # US-011 fix: fail fast if stop_reason=tool_use but no tool blocks found
             if not tool_results:
-                log.error("API returned stop_reason=tool_use but no tool_use blocks in content")
+                log.error("stop_reason=tool_use but no tool blocks")
                 return False, "protocol_error_empty_tool_use"
 
             messages.append({"role": "user", "content": tool_results})
+            # Send typing action during tool execution
+            await tg.send_typing_action(chat_id)
             continue
 
-        # end_turn or max_tokens → extract final text
-        final_text = "".join(
-            b["text"] for b in content if b.get("type") == "text"
-        )
+        # end_turn or max_tokens
+        final_text = "".join(b["text"] for b in content_blocks if b.get("type") == "text")
         log.info("API completed (iterations=%d, stop=%s)", iteration + 1, stop_reason)
-        return True, final_text
+
+        # Final stream update with complete text
+        if on_stream and stream_text:
+            try:
+                await on_stream(stream_text)
+            except Exception:
+                pass
+
+        # Parse response text and classification JSON
+        response_text, classification = _parse_response(final_text)
+
+        # Fire-and-forget: save bot response + classification + embedding to DB
+        asyncio.create_task(run_respond_and_classify(
+            chat_id=chat_id,
+            message_id=user_message_id,
+            response_text=response_text,
+            classification=classification,
+            skip_telegram=True,
+        ))
+
+        return True, response_text
 
     log.warning("Reached max tool iterations (%d)", MAX_TOOL_ITERATIONS)
     return False, "max_iterations"
@@ -439,61 +587,67 @@ async def process_one() -> bool:
     if extra_queue_ids:
         log.info("Batched %d messages for chat_id=%s", len(all_queue_ids), chat_id)
 
-    # US-002 fix: placeholder send is inside the try block
-    placeholder_id = None
+    stream_msg_id = None
     lock_acquired = False
     try:
-        # Send placeholder (inside try so failure doesn't orphan messages)
-        try:
-            placeholder_id = await tg.send_message(chat_id, "🔄 처리 중...", parse_mode=None)
-        except Exception as e:
-            log.warning("Failed to send placeholder: %s", e)
-            # Continue processing — placeholder is optional
+        # Send typing indicator (no placeholder message)
+        await tg.send_typing_action(chat_id)
 
         lock_acquired = acquire_lock()
         if not lock_acquired:
             log.info("Another worker is running, requeueing messages")
             for qid in all_queue_ids:
                 await db.requeue_message(qid)
-            if placeholder_id:
-                await tg.edit_message(chat_id, placeholder_id, "⏳ 잠시만 기다려주세요...", parse_mode=None)
             return True
 
-        success, output = await run_claude(combined_content, chat_id)
+        # Streaming callback: progressively send/edit message
+        async def on_stream(text: str):
+            nonlocal stream_msg_id
+            # Strip classification JSON block for display
+            display = text.split("```json")[0].rstrip()
+            if not display:
+                return
+            try:
+                if stream_msg_id is None:
+                    stream_msg_id = await tg.send_message(chat_id, display, parse_mode=None)
+                else:
+                    await tg.edit_message(chat_id, stream_msg_id, display, parse_mode=None)
+            except Exception as e:
+                log.warning("Stream display update failed: %s", e)
+
+        success, output = await run_claude(combined_content, chat_id, on_stream=on_stream)
 
         if success:
             for qid in all_queue_ids:
                 await db.complete_message(qid)
-            # Edit placeholder with final response (or send new if edit fails/too long)
-            if placeholder_id and len(output) <= 4096:
-                await tg.edit_message(chat_id, placeholder_id, output)
+            # Final edit with clean response (parsed, no JSON block)
+            if stream_msg_id:
+                if len(output) <= 4096:
+                    await tg.edit_message(chat_id, stream_msg_id, output)
+                else:
+                    await tg.edit_message(chat_id, stream_msg_id, "✅", parse_mode=None)
+                    await tg.send_message(chat_id, output)
             else:
-                # Delete-ish: edit placeholder to minimal, then send full response
-                if placeholder_id:
-                    await tg.edit_message(chat_id, placeholder_id, "✅", parse_mode=None)
                 await tg.send_message(chat_id, output)
             log.info("Messages processed successfully queue_ids=%s", all_queue_ids)
         else:
             for qid in all_queue_ids:
                 await db.fail_message(qid, output)
-            if output != "timeout":
-                error_text = "⚠️ 메시지 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
-                if placeholder_id:
-                    await tg.edit_message(chat_id, placeholder_id, error_text, parse_mode=None)
-                else:
-                    await tg.send_message(chat_id, error_text)
-            else:
-                if placeholder_id:
-                    await tg.edit_message(chat_id, placeholder_id, "⏳ 재시도 중...", parse_mode=None)
+            error_text = "⚠️ 메시지 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+            if output == "timeout":
                 log.info("Timeout failure — will be auto-retried on next cycle")
+            elif stream_msg_id:
+                await tg.edit_message(chat_id, stream_msg_id, error_text, parse_mode=None)
+            else:
+                await tg.send_message(chat_id, error_text)
             log.error("Message processing failed queue_ids=%s: %s", all_queue_ids, output[:100])
 
     except Exception as e:
         log.error("Unexpected error processing queue_ids=%s: %s", all_queue_ids, e, exc_info=True)
         for qid in all_queue_ids:
             await db.fail_message(qid, str(e))
-        if placeholder_id:
-            await tg.edit_message(chat_id, placeholder_id, "⚠️ 내부 오류가 발생했습니다.", parse_mode=None)
+        if stream_msg_id:
+            await tg.edit_message(chat_id, stream_msg_id, "⚠️ 내부 오류가 발생했습니다.", parse_mode=None)
         else:
             await tg.send_message(chat_id, "⚠️ 내부 오류가 발생했습니다.")
 

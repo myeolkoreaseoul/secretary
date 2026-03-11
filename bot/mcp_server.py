@@ -78,36 +78,6 @@ _CITY_COORDS = {
 
 TOOL_DEFINITIONS = [
     {
-        "name": "prepare_context",
-        "description": "유저 메시지를 DB에 저장하고, 최근 대화 히스토리와 관련 과거 맥락을 한번에 조회합니다. 항상 이 도구를 먼저 호출하세요.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "chat_id": {"type": "integer", "description": "텔레그램 chat_id"},
-                "content": {"type": "string", "description": "유저 메시지 내용"},
-                "telegram_message_id": {"type": "integer", "description": "텔레그램 메시지 ID (선택)"},
-            },
-            "required": ["chat_id", "content"],
-        },
-    },
-    {
-        "name": "respond_and_classify",
-        "description": "답변을 텔레그램으로 전송하고, 봇 응답을 저장하고, 메시지를 분류합니다. prepare_context 후에 호출하세요.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "chat_id": {"type": "integer", "description": "텔레그램 chat_id"},
-                "message_id": {"type": "string", "description": "prepare_context에서 받은 user_message_id"},
-                "response_text": {"type": "string", "description": "유저에게 보낼 답변"},
-                "classification": {
-                    "type": "object",
-                    "description": "분류 결과: {category, title, summary, advice, entities[]}",
-                },
-            },
-            "required": ["chat_id", "message_id", "response_text", "classification"],
-        },
-    },
-    {
         "name": "add_todo",
         "description": "할일을 추가합니다. 플래닝 시 estimated_minutes와 time_hint도 함께 설정하세요.",
         "input_schema": {
@@ -272,36 +242,6 @@ _call_tool_decorator = server.call_tool() if server else _noop_decorator
 @_list_tools_decorator
 async def list_tools() -> list:
     return [
-        Tool(
-            name="prepare_context",
-            description="유저 메시지를 DB에 저장하고, 최근 대화 히스토리와 관련 과거 맥락을 한번에 조회합니다. 항상 이 도구를 먼저 호출하세요.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "chat_id": {"type": "integer", "description": "텔레그램 chat_id"},
-                    "content": {"type": "string", "description": "유저 메시지 내용"},
-                    "telegram_message_id": {"type": "integer", "description": "텔레그램 메시지 ID (선택)"},
-                },
-                "required": ["chat_id", "content"],
-            },
-        ),
-        Tool(
-            name="respond_and_classify",
-            description="답변을 텔레그램으로 전송하고, 봇 응답을 저장하고, 메시지를 분류합니다. prepare_context 후에 호출하세요.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "chat_id": {"type": "integer", "description": "텔레그램 chat_id"},
-                    "message_id": {"type": "string", "description": "prepare_context에서 받은 user_message_id"},
-                    "response_text": {"type": "string", "description": "유저에게 보낼 답변"},
-                    "classification": {
-                        "type": "object",
-                        "description": "분류 결과: {category, title, summary, advice, entities[]}",
-                    },
-                },
-                "required": ["chat_id", "message_id", "response_text", "classification"],
-            },
-        ),
         Tool(
             name="add_todo",
             description="할일을 추가합니다. 플래닝 시 estimated_minutes와 time_hint도 함께 설정하세요.",
@@ -478,6 +418,74 @@ def _validate_chat_id(chat_id: int) -> bool:
     return chat_id in TELEGRAM_ALLOWED_USERS
 
 
+async def run_prepare_context(chat_id: int, content: str, telegram_message_id: int | None = None) -> dict:
+    """Prepare context — callable directly from worker (no tool call needed)."""
+    save_task = db.save_message(
+        chat_id=chat_id, role="user", content=content,
+        telegram_message_id=telegram_message_id,
+    )
+    history_task = db.get_recent_messages(chat_id, 24)
+    embed_task = emb.generate_embedding(content)
+    categories_task = db.get_categories()
+
+    msg, history, vec, categories = await asyncio.gather(
+        save_task, history_task, embed_task, categories_task
+    )
+
+    if vec:
+        await db.save_embedding("telegram_messages", msg["id"], vec, emb.get_model_name())
+
+    asyncio.create_task(_classify_and_save(msg["id"], content))
+
+    similar = []
+    if vec:
+        similar = await db.search_similar(vec)
+
+    formatted_history = [
+        {"role": m["role"], "content": m["content"][:500], "created_at": m["created_at"]}
+        for m in history
+    ]
+    cat_list = [{"id": c["id"], "name": c["name"], "color": c.get("color")} for c in categories]
+
+    return {
+        "user_message_id": msg["id"],
+        "history": formatted_history,
+        "history_count": len(formatted_history),
+        "relevant_context": similar[:10],
+        "categories": cat_list,
+        "has_embedding": vec is not None,
+    }
+
+
+async def run_respond_and_classify(
+    chat_id: int, message_id: str, response_text: str, classification: dict,
+    skip_telegram: bool = False,
+) -> dict:
+    """Respond + classify — callable directly from worker.
+
+    skip_telegram=True when worker already sent the message to Telegram.
+    """
+    send_ok = None
+    if not skip_telegram:
+        send_ok = await tg.send_message(chat_id, response_text)
+
+    save_task = db.save_message(chat_id=chat_id, role="assistant", content=response_text)
+    classify_task = db.save_classification(message_id, classification)
+    embed_task = emb.generate_embedding(response_text)
+
+    msg, _, vec = await asyncio.gather(save_task, classify_task, embed_task)
+
+    if vec:
+        await db.save_embedding("telegram_messages", msg["id"], vec, emb.get_model_name())
+
+    return {
+        "sent": send_ok,
+        "bot_message_id": msg["id"],
+        "classified": True,
+        "has_embedding": vec is not None,
+    }
+
+
 async def _dispatch(name: str, args: dict) -> dict:
     """Route tool calls to implementations."""
 
@@ -489,87 +497,19 @@ async def _dispatch(name: str, args: dict) -> dict:
             return {"error": "unauthorized"}
 
     if name == "prepare_context":
-        chat_id = args["chat_id"]
-        content = args["content"]
-
-        # Run save + history + embedding in parallel
-        save_task = db.save_message(
-            chat_id=chat_id,
-            role="user",
-            content=content,
+        return await run_prepare_context(
+            chat_id=args["chat_id"],
+            content=args["content"],
             telegram_message_id=args.get("telegram_message_id"),
         )
-        history_task = db.get_recent_messages(chat_id, 24)
-        embed_task = emb.generate_embedding(content)
-        categories_task = db.get_categories()
-
-        msg, history, vec, categories = await asyncio.gather(
-            save_task, history_task, embed_task, categories_task
-        )
-
-        # Save embedding if generated
-        if vec:
-            await db.save_embedding("telegram_messages", msg["id"], vec, emb.get_model_name())
-
-        # Fire-and-forget Gemini classification (user role only)
-        asyncio.create_task(_classify_and_save(msg["id"], content))
-
-        # Vector search with the embedding
-        similar = []
-        if vec:
-            similar = await db.search_similar(vec)
-
-        # Format history
-        formatted_history = []
-        for m in history:
-            formatted_history.append({
-                "role": m["role"],
-                "content": m["content"][:500],
-                "created_at": m["created_at"],
-            })
-
-        # Format categories
-        cat_list = [{"id": c["id"], "name": c["name"], "color": c.get("color")} for c in categories]
-
-        return {
-            "user_message_id": msg["id"],
-            "history": formatted_history,
-            "history_count": len(formatted_history),
-            "relevant_context": similar[:10],
-            "categories": cat_list,
-            "has_embedding": vec is not None,
-        }
 
     elif name == "respond_and_classify":
-        chat_id = args["chat_id"]
-        response_text = args["response_text"]
-        message_id = args["message_id"]
-        classification = args["classification"]
-
-        # Send telegram message first (user sees response ASAP)
-        send_ok = await tg.send_message(chat_id, response_text)
-
-        # Then save + classify + embed in parallel
-        save_task = db.save_message(
-            chat_id=chat_id,
-            role="assistant",
-            content=response_text,
+        return await run_respond_and_classify(
+            chat_id=args["chat_id"],
+            message_id=args["message_id"],
+            response_text=args["response_text"],
+            classification=args["classification"],
         )
-        classify_task = db.save_classification(message_id, classification)
-        embed_task = emb.generate_embedding(response_text)
-
-        msg, _, vec = await asyncio.gather(save_task, classify_task, embed_task)
-
-        # Save bot response embedding
-        if vec:
-            await db.save_embedding("telegram_messages", msg["id"], vec, emb.get_model_name())
-
-        return {
-            "sent": send_ok,
-            "bot_message_id": msg["id"],
-            "classified": True,
-            "has_embedding": vec is not None,
-        }
 
     elif name == "add_todo":
         category_id = None

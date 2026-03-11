@@ -52,7 +52,7 @@ logger = logging.getLogger("secretary")
 
 
 # --- Claude Model Routing ---
-CLAUDE_MODEL_SIMPLE = "claude-haiku-4-5-20251001"
+CLAUDE_MODEL_SIMPLE = "claude-sonnet-4-6"
 CLAUDE_MODEL_COMPLEX = "claude-opus-4-6"
 CLAUDE_TIMEOUT_SIMPLE = 120   # 2 minutes — Haiku is fast
 CLAUDE_TIMEOUT_COMPLEX = 3600  # 60 minutes — Opus for coding tasks
