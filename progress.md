@@ -132,4 +132,10 @@
 - worker.py: 401 시 mark_server_rejected + reload_from_disk만 호출
 - QA 10건 이슈 수정 (자체+Codex+Ralph 20회)
 - 프로덕션 테스트 4/6 통과 (기본동작, inotify, 401시뮬, settlement-qna)
-- 장시간 안정성 모니터링 진행 중
+
+## 2026-03-11: context 사전 주입 + 스트리밍 응답 (응답 속도 30초→6초)
+- worker.py: API 호출 전 prepare_context 직접 실행, system prompt에 context 주입 (API 왕복 5→1~2회)
+- worker.py: Anthropic streaming API + 텔레그램 실시간 타이핑 (1.5초 간격 editMessage)
+- mcp_server.py: run_prepare_context/run_respond_and_classify 독립 함수 추출, TOOL_DEFINITIONS 11→9개
+- config.py: 기본 모델 Haiku → Sonnet 변경 (품질 개선)
+- CLAUDE_FULL/SIMPLE.md: 워크플로우 개편, 테이블/볼드/헤딩 금지, 맥락 연결 강화
