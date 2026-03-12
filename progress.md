@@ -139,3 +139,13 @@
 - mcp_server.py: run_prepare_context/run_respond_and_classify 독립 함수 추출, TOOL_DEFINITIONS 11→9개
 - config.py: 기본 모델 Haiku → Sonnet 변경 (품질 개선)
 - CLAUDE_FULL/SIMPLE.md: 워크플로우 개편, 테이블/볼드/헤딩 금지, 맥락 연결 강화
+
+## 2026-03-12: Time 페이지 레퍼런스 레이아웃 + AI 파이프라인 구축
+- time/page.tsx: 레퍼런스 디자인 반영 (1/3:2/3, Plan|T|Do 3컬럼, 콤팩트 슬롯)
+- gpt.ts: GPT 시크릿키 공통 유틸 (gpt-5.4 chatgpt.com backend API)
+- insight/priorities API: Haiku → GPT 시크릿키 전환
+- Brain Dump DB 자동저장 + Top 3 Priorities AI 추출
+- sync_activity_events.py: 중복 키 409 에러 수정, 1,296건 전량 동기화
+- summarize_events.py: GPT 제목 요약 + unknown→프로젝트 자동 분류
+- daily_work_summary.py: Claude→GPT 전환, 백필 19일 완료
+- refresh_gpt_token.py: Codex OAuth 갱신 + Vercel env 동기화
