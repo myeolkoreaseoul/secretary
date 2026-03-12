@@ -254,6 +254,9 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
   const [priorities, setPriorities] = useState<Priority[]>([]);
   const [notesLoaded, setNotesLoaded] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [parsing, setParsing] = useState(false);
+  const [parsedTasks, setParsedTasks] = useState<{ title: string; start_time: string; end_time: string; category: string }[] | null>(null);
+  const [savingParsed, setSavingParsed] = useState(false);
 
   // Load notes for this date
   useEffect(() => {
@@ -295,6 +298,59 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
     }).catch(() => {});
   }, [date]);
 
+  // Parse brain dump → structured tasks via AI
+  const parseBrainDump = useCallback(async () => {
+    if (!brainDump.trim()) return;
+    setParsing(true);
+    setParsedTasks(null);
+    try {
+      const res = await apiFetch("/api/time/plan/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date,
+          text: brainDump,
+          existing_blocks: planBlocks.map(b => ({ start_time: b.start_time, end_time: b.end_time, title: b.title })),
+        }),
+      });
+      const data = await res.json();
+      if (data.tasks?.length) {
+        setParsedTasks(data.tasks);
+      }
+    } catch { /* ignore */ }
+    setParsing(false);
+  }, [brainDump, date, planBlocks]);
+
+  // Remove a parsed task from preview
+  const removeParsedTask = (idx: number) => {
+    setParsedTasks(prev => prev ? prev.filter((_, i) => i !== idx) : null);
+  };
+
+  // Confirm parsed tasks → save as plan_blocks
+  const confirmParsedTasks = useCallback(async () => {
+    if (!parsedTasks?.length) return;
+    setSavingParsed(true);
+    for (const t of parsedTasks) {
+      await onPlanAdd({
+        date,
+        start_time: t.start_time,
+        end_time: t.end_time,
+        title: t.title,
+        category: t.category,
+        color: null,
+      });
+    }
+    setParsedTasks(null);
+    setBrainDump("");
+    // Clear brain dump from DB too
+    apiFetch("/api/time/notes", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date, brain_dump: "" }),
+    }).catch(() => {});
+    setSavingParsed(false);
+  }, [parsedTasks, date, onPlanAdd]);
+
   // Build project stats for bottom section
   const projectStats: { name: string; mins: number }[] = [];
   const pMap: Record<string, number> = {};
@@ -309,22 +365,60 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
   const maxProjectMins = Math.max(...projectStats.map(p => p.mins), 1);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* ════ TOP SECTION: Brain Dump + Priorities (1/3) | Timebox (2/3) ════ */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_2fr] gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_2fr] gap-4">
         {/* ── Left Half: Top 3 + Brain Dump ── */}
-        <div className="space-y-4">
+        <div className="space-y-3">
           <Card title="TOP 3 PRIORITIES">
             <TopPrioritiesChecklist priorities={priorities} onUpdate={savePriorities} brainDump={brainDump} date={date} />
           </Card>
 
           <Card title="BRAIN DUMP" className="flex-1">
-            <textarea
-              value={brainDump}
-              onChange={e => saveBrainDump(e.target.value)}
-              placeholder={"오늘 할 일, 생각, 아이디어를 자유롭게...\n\n• 회의 준비\n• tessera 배포 확인\n• 정산 리뷰 마감\n• ..."}
-              className="w-full min-h-[320px] bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl p-5 text-[14px] text-[#ccc] placeholder-[#333] resize-y outline-none focus:border-[#00E676]/50 leading-relaxed"
-            />
+            {parsedTasks ? (
+              /* ── Preview: AI-extracted tasks ── */
+              <div className="space-y-2">
+                <p className="text-[11px] text-[#666] mb-2">AI가 추출한 계획 — 삭제하거나 확인하세요</p>
+                {parsedTasks.map((t, i) => (
+                  <div key={i} className="flex items-center gap-2 p-2.5 rounded-lg bg-[#1a1a1a] group">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: CAT_COLORS[t.category] || "#666" }} />
+                    <span className="text-[12px] text-[#888] font-mono w-[90px] shrink-0">{t.start_time}~{t.end_time}</span>
+                    <span className="text-[13px] text-white flex-1 truncate">{t.title}</span>
+                    <span className="text-[10px] text-[#555] shrink-0">{CAT_LABELS[t.category] || t.category}</span>
+                    <button onClick={() => removeParsedTask(i)}
+                      className="opacity-0 group-hover:opacity-100 text-[#666] hover:text-[#ff4757] transition-all shrink-0">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <div className="flex gap-2 pt-2">
+                  <button onClick={confirmParsedTasks} disabled={savingParsed || parsedTasks.length === 0}
+                    className="bg-[#00E676] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:bg-[#00C853] disabled:opacity-40 transition-colors">
+                    {savingParsed ? "저장 중..." : `Plan에 추가 (${parsedTasks.length}건)`}
+                  </button>
+                  <button onClick={() => setParsedTasks(null)}
+                    className="text-xs text-[#666] hover:text-white px-3 py-2 rounded-lg border border-[#333] hover:border-[#555] transition-colors">
+                    취소
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* ── Input: textarea + 정리 button ── */
+              <div className="relative">
+                <textarea
+                  value={brainDump}
+                  onChange={e => saveBrainDump(e.target.value)}
+                  placeholder={"오늘 할 일을 자유롭게 적으세요...\n\n예: 오전에 tessera 빌드, 점심 후 secretary UI 손보기, 저녁에 운동"}
+                  className="w-full min-h-[280px] bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl p-4 pr-20 text-[13px] text-[#ccc] placeholder-[#444] resize-y outline-none focus:border-[#00E676]/50 leading-relaxed"
+                />
+                {brainDump.trim() && (
+                  <button onClick={parseBrainDump} disabled={parsing}
+                    className="absolute bottom-4 right-4 bg-[#00E676] text-black text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#00C853] disabled:opacity-50 transition-colors">
+                    {parsing ? "분석 중..." : "⚡ 정리"}
+                  </button>
+                )}
+              </div>
+            )}
           </Card>
         </div>
 
@@ -335,17 +429,17 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
       </div>
 
       {/* ════ BOTTOM SECTION: Auto Stats ════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_200px] gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_180px] gap-4">
         {/* ── Donut Chart (Category breakdown) ── */}
         <Card title="CATEGORIES">
           <div className="flex items-center gap-6">
             <CategoryDonut categories={stats.categories} total={stats.total_minutes} />
             <div className="flex-1 space-y-2">
               {Object.entries(stats.categories).sort(([,a],[,b]) => b - a).map(([cat, mins]) => (
-                <div key={cat} className="flex items-center gap-2 text-sm">
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: CAT_COLORS[cat] || "#666" }} />
-                  <span className="text-[#888] flex-1">{CAT_LABELS[cat] || cat}</span>
-                  <span className="text-white font-medium font-mono text-xs">{fmtDurShort(mins)}</span>
+                <div key={cat} className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: CAT_COLORS[cat] || "#666" }} />
+                  <span className="text-[12px] text-[#888] flex-1">{CAT_LABELS[cat] || cat}</span>
+                  <span className="text-[12px] text-white font-medium font-mono">{fmtDurShort(mins)}</span>
                 </div>
               ))}
             </div>
@@ -357,11 +451,11 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
           <div className="space-y-3">
             {projectStats.slice(0, 6).map(p => (
               <div key={p.name}>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-white truncate">{p.name}</span>
-                  <span className="text-[#888] font-mono text-xs ml-2">{fmtDurShort(p.mins)}</span>
+                <div className="flex justify-between mb-0.5">
+                  <span className="text-[12px] text-white truncate">{p.name}</span>
+                  <span className="text-[11px] text-[#888] font-mono ml-2">{fmtDurShort(p.mins)}</span>
                 </div>
-                <div className="h-2 rounded-full bg-[#1a1a1a]">
+                <div className="h-1.5 rounded-full bg-[#1a1a1a]">
                   <div className="h-full rounded-full bg-[#00E676] transition-all duration-500"
                     style={{ width: `${(p.mins / maxProjectMins) * 100}%` }} />
                 </div>
@@ -372,7 +466,7 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
         </Card>
 
         {/* ── Stats Cards ── */}
-        <div className="space-y-3">
+        <div className="space-y-2">
           <MiniStat label="활동시간" value={fmtDurShort(stats.total_minutes)} icon={Clock} />
           <MiniStat label="세션" value={`${stats.total_sessions}`} icon={Code2} />
           <MiniStat label="프로젝트" value={`${stats.projects.length}`} icon={FolderOpen} />
@@ -403,9 +497,9 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
 
 // ── Category Donut (SVG) ──
 function CategoryDonut({ categories, total }: { categories: Record<string, number>; total: number }) {
-  const size = 120;
+  const size = 100;
   const cx = size / 2, cy = size / 2;
-  const r = 44, strokeW = 16;
+  const r = 36, strokeW = 14;
 
   if (total === 0) {
     return (
@@ -449,18 +543,19 @@ function CategoryDonut({ categories, total }: { categories: Record<string, numbe
 // ── Mini Stat (for bottom right) ──
 function MiniStat({ label, value, icon: Icon, color = "#00E676" }: { label: string; value: string; icon: typeof Clock; color?: string }) {
   return (
-    <div className="bg-[#141414] border border-[#2a2a2a] rounded-xl p-4 flex items-center gap-3">
-      <Icon className="w-4 h-4 shrink-0" style={{ color }} />
+    <div className="bg-[#141414] border border-[#1e1e1e] rounded-lg p-3 flex items-center gap-2.5">
+      <Icon className="w-3.5 h-3.5 shrink-0" style={{ color }} />
       <div>
-        <div className="text-lg font-bold text-white">{value}</div>
-        <div className="text-[10px] text-[#666] uppercase tracking-wider">{label}</div>
+        <div className="text-base font-bold text-white leading-tight">{value}</div>
+        <div className="text-[9px] text-[#555] uppercase tracking-wide">{label}</div>
       </div>
     </div>
   );
 }
 
-// ── Timebox Grid (Plan | T | Do, compact 30-min slots) ──
-const SLOT_H = 24; // px per 30-min slot (1.2x: 24h fits in ~1008px)
+// ── Timebox Grid: Plan (vertical timeline) + Do (10-min table grid) ──
+// Do grid: rows = hours, cols = 00/10/20/30/40/50
+// Each cell shows category keyword. Click → detail popover.
 
 function TimeboxGrid({ events: rawEvents, planBlocks, date, onPlanAdd, onPlanDelete }: {
   events: ActivityEvent[];
@@ -470,155 +565,214 @@ function TimeboxGrid({ events: rawEvents, planBlocks, date, onPlanAdd, onPlanDel
   onPlanDelete: (id: string) => Promise<void>;
 }) {
   const [showAddPlan, setShowAddPlan] = useState(false);
-  const events = rawEvents.filter(e => (e.duration_minutes || 0) >= 3);
+  const [selectedCell, setSelectedCell] = useState<{ hour: number; slot: number } | null>(null);
+  const events = rawEvents.filter(e => (e.duration_minutes || 0) >= 1);
 
-  // Day starts at 7:00, ends at next 03:00 (7~27 = 20 hours)
   const startHour = 7;
-  const endHour = 27; // 27 = 03:00 next day
-  const totalSlots = (endHour - startHour + 1) * 2;
+  const endHour = 26; // up to 02:50 next day
+  const ROW_H = 36; // px per hour row — tight density
+  const PLAN_SLOT_H = ROW_H; // plan blocks match row height
 
   // Wrap early morning (0~6) to after midnight (24~30)
-  const toGrid = (mins: number) => mins < startHour * 60 ? mins + 24 * 60 : mins;
+  const toGridHour = (h: number) => h < startHour ? h + 24 : h;
 
-  // Place actual events
-  const placedEvents = events.map(ev => {
-    const gridMin = toGrid(kstTotalMinutes(ev.started_at));
+  // Build 10-min cell map: cellMap[hour][slotIdx] = events in that 10-min
+  const cellMap: Record<number, Record<number, ActivityEvent[]>> = {};
+  for (let h = startHour; h <= endHour; h++) {
+    cellMap[h] = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [] };
+  }
+  for (const ev of events) {
+    const startMin = kstTotalMinutes(ev.started_at);
     const dur = ev.duration_minutes || 1;
-    const top = ((gridMin - startHour * 60) / 30) * SLOT_H;
-    const height = Math.max(SLOT_H * 0.7, (dur / 30) * SLOT_H);
-    const color = CAT_COLORS[ev.category] || "#666";
-    const project = ev.metadata ? String((ev.metadata as Record<string, unknown>).project || "") : "";
-    return { ev, top, height, color, project, dur };
-  }).filter(p => p.top >= 0 && p.top < totalSlots * SLOT_H);
+    const gridStartMin = startMin < startHour * 60 ? startMin + 24 * 60 : startMin;
+    // Fill each 10-min slot this event touches
+    for (let m = gridStartMin; m < gridStartMin + dur; m += 10) {
+      const h = Math.floor(m / 60);
+      const s = Math.floor((m % 60) / 10);
+      if (h >= startHour && h <= endHour && cellMap[h]?.[s]) {
+        if (!cellMap[h][s].some(e => e.id === ev.id)) {
+          cellMap[h][s].push(ev);
+        }
+      }
+    }
+  }
 
-  // Place plan blocks
+  // Dominant category for a cell
+  const cellCategory = (evs: ActivityEvent[]): string | null => {
+    if (evs.length === 0) return null;
+    const cats: Record<string, number> = {};
+    for (const e of evs) cats[e.category] = (cats[e.category] || 0) + (e.duration_minutes || 1);
+    return Object.entries(cats).sort(([, a], [, b]) => b - a)[0][0];
+  };
+
+  // Place plan blocks (vertical, left side)
   const placedPlans = planBlocks.map(pb => {
     const [sh, sm] = pb.start_time.split(":").map(Number);
     const [eh, em] = pb.end_time.split(":").map(Number);
-    const startMin = toGrid(sh * 60 + sm);
-    const endMin = toGrid(eh * 60 + em);
-    const top = ((startMin - startHour * 60) / 30) * SLOT_H;
-    const height = Math.max(SLOT_H * 0.7, ((endMin - startMin) / 30) * SLOT_H);
+    const startGridH = toGridHour(sh);
+    const endGridH = toGridHour(eh);
+    const startOff = (startGridH - startHour) + sm / 60;
+    const endOff = (endGridH - startHour) + em / 60;
+    const top = startOff * ROW_H;
+    const height = Math.max(ROW_H * 0.4, (endOff - startOff) * ROW_H);
     const color = CAT_COLORS[pb.category] || "#00E676";
     return { pb, top, height, color };
   });
 
-  // Current time indicator
+  // Current time
   const now = new Date();
   const nowKST = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  const nowMins = toGrid(nowKST.getUTCHours() * 60 + nowKST.getUTCMinutes());
-  const nowY = ((nowMins - startHour * 60) / 30) * SLOT_H;
+  const nowH = toGridHour(nowKST.getUTCHours());
+  const nowM = nowKST.getUTCMinutes();
+  const nowRowOff = (nowH - startHour) + nowM / 60;
+  const nowY = nowRowOff * ROW_H;
   const isToday = date === todayKST();
 
-  const gridH = totalSlots * SLOT_H;
+  const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => startHour + i);
+  const gridH = hours.length * ROW_H;
+
+  // Detail for selected cell
+  const selectedEvents = selectedCell ? (cellMap[selectedCell.hour]?.[selectedCell.slot] || []) : [];
+  const selectedTime = selectedCell ? `${selectedCell.hour % 24}:${String(selectedCell.slot * 10).padStart(2, "0")}` : "";
+
+  // Plan block lookup by hour
+  const planByHour: Record<number, typeof placedPlans> = {};
+  for (const pp of placedPlans) {
+    const startH = Math.floor(pp.top / ROW_H) + startHour;
+    const endH = Math.ceil((pp.top + pp.height) / ROW_H) + startHour;
+    for (let h = startH; h < endH; h++) {
+      if (!planByHour[h]) planByHour[h] = [];
+      if (!planByHour[h].includes(pp)) planByHour[h].push(pp);
+    }
+  }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Column headers: Plan (narrow) | T (narrow) | Do (wide) */}
-      <div className="grid grid-cols-[2fr_32px_5fr] border-b border-[#2a2a2a] shrink-0">
-        <div className="py-2 px-3 text-center">
-          <div className="flex items-center justify-center gap-1.5">
-            <span className="text-xs font-bold text-[#888] uppercase tracking-widest">Plan</span>
-            <button onClick={() => setShowAddPlan(true)} className="w-4 h-4 rounded bg-[#2a2a2a] hover:bg-[#00E676]/20 flex items-center justify-center transition-colors">
-              <Plus className="w-2.5 h-2.5 text-[#888] hover:text-[#00E676]" />
-            </button>
-          </div>
-        </div>
-        <div className="py-2 text-center border-x border-[#2a2a2a]">
-          <span className="text-xs font-bold text-[#555] uppercase">T</span>
-        </div>
-        <div className="py-2 px-3 text-center">
-          <span className="text-xs font-bold text-[#00E676] uppercase tracking-widest">Do</span>
-        </div>
-      </div>
-
       {/* Add Plan Modal */}
       {showAddPlan && <AddPlanModal date={date} onAdd={async (b) => { await onPlanAdd(b); setShowAddPlan(false); }} onClose={() => setShowAddPlan(false)} />}
 
-      {/* Grid: Plan(2fr) | T(32px) | Do(5fr) — compact layout */}
-      <div className="relative overflow-y-auto flex-1" style={{ minHeight: `${gridH}px` }}>
-        {/* CSS variables for column positions */}
-        {/* Plan: 0 ~ planW, T: planW ~ planW+32, Do: planW+32 ~ 100% */}
-        {/* Using percentage: Plan ≈ 28.6%, T ≈ fixed 32px, Do ≈ 71.4% minus 32px */}
-
-        {/* Hour lines + time labels in T column */}
-        {Array.from({ length: endHour - startHour + 1 }, (_, i) => {
-          const hour = startHour + i;
-          const y = i * 2 * SLOT_H;
-          return (
-            <div key={hour} className="absolute left-0 right-0" style={{ top: `${y}px` }}>
-              {/* Full-width hour line */}
-              <div className="absolute left-0 right-0 border-t border-[#1e1e1e]" />
-              {/* Half-hour dashed line */}
-              {SLOT_H >= 15 && <div className="absolute left-0 right-0 border-t border-[#171717] border-dashed" style={{ top: `${SLOT_H}px` }} />}
-              {/* Time label in T column */}
-              <div className="absolute -top-[7px] timebox-t-col text-center">
-                <span className="text-[11px] text-[#555] leading-none">{fmtHour(hour)}</span>
-              </div>
-              {/* T column vertical borders */}
-              <div className="absolute top-0 timebox-t-col" style={{ height: `${SLOT_H * 2}px` }}>
-                <div className="absolute left-0 top-0 bottom-0 border-l border-[#222]" />
-                <div className="absolute right-0 top-0 bottom-0 border-r border-[#222]" />
-              </div>
-            </div>
-          );
-        })}
-
-        {/* NOW indicator */}
-        {isToday && nowY >= 0 && nowY < gridH && (
-          <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top: `${nowY}px` }}>
-            <div className="flex items-center">
-              <div className="flex-1 border-t-2 border-[#ff4757]" />
-              <div className="w-2 h-2 rounded-full bg-[#ff4757] shrink-0" />
-              <div className="flex-1 border-t-2 border-[#ff4757]" />
-            </div>
-          </div>
-        )}
-
-        {/* PLAN column (narrow left) */}
-        <div className="absolute top-0 bottom-0 timebox-plan-col">
-          {placedPlans.map(({ pb, top, height, color }) => (
-            <div key={pb.id}
-              className="absolute left-0.5 right-0.5 rounded px-1 py-0.5 overflow-hidden group cursor-default"
-              style={{ top: `${top}px`, height: `${height}px`, backgroundColor: `${color}15`, borderLeft: `2px solid ${color}40` }}>
-              <div className="text-[12px] text-[#999] truncate leading-tight">{pb.title}</div>
-              <button onClick={() => onPlanDelete(pb.id)}
-                className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 w-3 h-3 flex items-center justify-center transition-opacity">
-                <X className="w-2 h-2 text-[#666] hover:text-[#ff4757]" />
-              </button>
-            </div>
-          ))}
-          {placedPlans.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <button onClick={() => setShowAddPlan(true)} className="text-[10px] text-[#444] hover:text-[#888] transition-colors">
-                + 추가
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* DO column (wide right) */}
-        <div className="absolute top-0 bottom-0 timebox-do-col">
-          {placedEvents.map(({ ev, top, height, color, project, dur }) => (
-            <div key={ev.id}
-              className="absolute left-0.5 right-0.5 rounded px-1.5 py-0.5 overflow-hidden cursor-default transition-all hover:brightness-125 hover:z-10"
-              style={{ top: `${top}px`, height: `${height}px`, backgroundColor: `${color}20`, borderLeft: `3px solid ${color}` }}>
-              <div className="flex items-center gap-1 h-full">
-                <div className="min-w-0 flex-1 overflow-hidden">
-                  <div className="text-[13px] font-medium text-white truncate leading-tight">{truncTitle(ev.title)}</div>
-                  {project && height > 28 && <div className="text-[11px] text-[#666] truncate">{project}</div>}
+      {/* Selected cell detail popover */}
+      {selectedCell && selectedEvents.length > 0 && (
+        <div className="border-b border-[#2a2a2a] bg-[#111] px-4 py-3 relative">
+          <button onClick={() => setSelectedCell(null)} className="absolute top-2 right-2 text-[#666] hover:text-white">
+            <X className="w-3.5 h-3.5" />
+          </button>
+          <div className="text-xs text-[#888] mb-2 font-mono">{selectedTime} ~ {selectedCell.hour % 24}:{String(selectedCell.slot * 10 + 10).padStart(2, "0")}</div>
+          <div className="space-y-1.5">
+            {selectedEvents.map((ev, i) => {
+              const project = ev.metadata ? String((ev.metadata as Record<string, unknown>).project || "") : "";
+              return (
+                <div key={ev.id || i} className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: CAT_COLORS[ev.category] || "#666" }} />
+                  <div className="min-w-0">
+                    <div className="text-[12px] text-white">{CAT_LABELS[ev.category] || ev.category}{project ? ` · ${project}` : ""}</div>
+                    <div className="text-[11px] text-[#888] truncate">{truncTitle(ev.title)}</div>
+                  </div>
                 </div>
-                <span className="text-[11px] text-[#888] shrink-0">{fmtDurShort(dur)}</span>
-              </div>
-            </div>
-          ))}
-          {events.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-[10px] text-[#444]">활동 기록 없음</span>
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Table grid: Plan | T | Do — column order is FIXED */}
+      <table className="w-full" style={{ tableLayout: "fixed", borderCollapse: "collapse", borderSpacing: 0 }}>
+        <colgroup>
+          <col style={{ width: "38%" }} />   {/* Plan */}
+          <col style={{ width: "24px" }} />  {/* T - time label */}
+          <col />                            {/* Do - remaining ~62% */}
+        </colgroup>
+        <thead>
+          <tr style={{ borderBottom: "1px solid #2a2a2a" }}>
+            <th className="py-1.5 text-left px-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-semibold text-[#888] uppercase tracking-wider">Plan</span>
+                <button onClick={() => setShowAddPlan(true)} className="w-4 h-4 rounded bg-[#222] hover:bg-[#00E676]/20 flex items-center justify-center transition-colors">
+                  <Plus className="w-2.5 h-2.5 text-[#666] hover:text-[#00E676]" />
+                </button>
+              </div>
+            </th>
+            <th className="py-1.5 text-[9px] text-[#444] font-normal">T</th>
+            <th className="py-1.5 px-1">
+              <div className="flex items-center">
+                <span className="text-[11px] font-semibold text-[#00E676] uppercase tracking-wider mr-1.5">Do</span>
+                <div className="flex-1 grid grid-cols-6 text-center">
+                  {[":00", ":10", ":20", ":30", ":40", ":50"].map(l => (
+                    <span key={l} className="text-[9px] text-[#444] font-mono">{l}</span>
+                  ))}
+                </div>
+              </div>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {hours.map(h => {
+            const isNowHour = isToday && nowH === h;
+            const nowSlot = isNowHour ? Math.floor(nowM / 10) : -1;
+            const plans = planByHour[h] || [];
+            return (
+              <tr key={h} className={isNowHour ? "bg-[#ff4757]/[0.03]" : ""}
+                style={{ height: `${ROW_H}px`, borderTop: "1px solid #1a1a1a" }}>
+                {/* Plan — FIRST column */}
+                <td className="align-top px-1.5 py-0.5" style={{ borderRight: "1px solid #222" }}>
+                  {plans.map(({ pb, color }) => (
+                    <div key={pb.id} className="flex items-center gap-1 group leading-tight">
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                      <span className="text-[11px] text-[#bbb] truncate flex-1">{pb.title}</span>
+                      <button onClick={() => onPlanDelete(pb.id)}
+                        className="opacity-0 group-hover:opacity-100 shrink-0 transition-opacity">
+                        <X className="w-2.5 h-2.5 text-[#555] hover:text-[#ff4757]" />
+                      </button>
+                    </div>
+                  ))}
+                  {plans.length === 0 && h === startHour + 9 && placedPlans.length === 0 && (
+                    <button onClick={() => setShowAddPlan(true)} className="text-[9px] text-[#333] hover:text-[#666]">+ 추가</button>
+                  )}
+                </td>
+                {/* T — time label — SECOND column */}
+                <td className="text-center align-top pt-0.5" style={{ borderRight: "1px solid #222" }}>
+                  <span className="text-[10px] text-[#444] font-mono leading-none">{h % 24}</span>
+                </td>
+                {/* Do — 6 cells — THIRD column */}
+                <td className="p-0">
+                  <div className="grid grid-cols-6 h-full">
+                    {[0, 1, 2, 3, 4, 5].map(s => {
+                      const evs = cellMap[h]?.[s] || [];
+                      const cat = cellCategory(evs);
+                      const color = cat ? (CAT_COLORS[cat] || "#666") : "transparent";
+                      const label = cat ? (CAT_LABELS[cat] || cat) : "";
+                      const isSelected = selectedCell?.hour === h && selectedCell?.slot === s;
+                      const isNowCell = isNowHour && nowSlot === s;
+                      const multiSession = evs.length > 1;
+                      return (
+                        <div key={s}
+                          onClick={() => evs.length > 0 ? setSelectedCell(isSelected ? null : { hour: h, slot: s }) : undefined}
+                          className={`relative flex items-center justify-center transition-all ${
+                            evs.length > 0 ? "cursor-pointer hover:brightness-150" : ""
+                          } ${isSelected ? "ring-1 ring-[#00E676] z-10" : ""} ${isNowCell ? "ring-1 ring-[#ff4757]/40" : ""}`}
+                          style={{
+                            backgroundColor: cat ? `${color}18` : "transparent",
+                            height: `${ROW_H}px`,
+                            borderRight: s < 5 ? "1px solid #1a1a1a" : "none",
+                          }}>
+                          {label && (
+                            <span className="text-[9px] leading-none truncate px-0.5" style={{ color }}>
+                              {label}
+                            </span>
+                          )}
+                          {multiSession && (
+                            <span className="absolute top-0 right-0.5 text-[7px] text-[#555]">{evs.length}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -719,7 +873,7 @@ function TopPrioritiesChecklist({ priorities, onUpdate, brainDump, date }: {
       ) : (
         <>
           {priorities.map((p, i) => (
-            <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-[#1a1a1a] hover:bg-[#1e1e1e] transition-colors group">
+            <div key={i} className="flex items-center gap-2.5 p-2.5 rounded-lg bg-[#1a1a1a] hover:bg-[#1e1e1e] transition-colors group">
               <button onClick={() => toggleDone(i)}
                 className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${
                   p.done ? "bg-[#00E676] border-[#00E676]" : "border-[#444] hover:border-[#00E676]"
@@ -792,7 +946,7 @@ function ProjectSummary({ events }: { events: ActivityEvent[] }) {
     <div className="space-y-3">
       {projects.map(([proj, titles]) => (
         <div key={proj}>
-          <div className="text-[13px] font-semibold text-white mb-1">{proj} <span className="text-[#555] font-normal">({titles.length}건)</span></div>
+          <div className="text-[12px] font-semibold text-white mb-0.5">{proj} <span className="text-[#555] font-normal">({titles.length}건)</span></div>
           <div className="space-y-0.5 pl-3">
             {titles.slice(0, 5).map((t, i) => (
               <div key={i} className="text-[11px] text-[#888] truncate">· {t}</div>
@@ -825,13 +979,13 @@ function AiInsight({ date, eventCount }: { date: string; eventCount: number }) {
   if (!insight && !loading) return null;
 
   return (
-    <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl px-6 py-4">
-      <div className="flex items-start gap-3">
-        <Star className="w-4 h-4 text-[#FFD740] mt-0.5 shrink-0" />
+    <div className="bg-[#141414] border border-[#1e1e1e] rounded-lg px-4 py-3">
+      <div className="flex items-start gap-2.5">
+        <Star className="w-3.5 h-3.5 text-[#FFD740] mt-0.5 shrink-0" />
         {loading ? (
-          <div className="text-[13px] text-[#555] italic">AI 분석 중...</div>
+          <div className="text-[12px] text-[#555] italic">AI 분석 중...</div>
         ) : (
-          <p className="text-[13px] text-[#999] leading-relaxed whitespace-pre-wrap line-clamp-3 italic">{insight}</p>
+          <p className="text-[12px] text-[#999] leading-relaxed whitespace-pre-wrap line-clamp-3 italic">{insight}</p>
         )}
       </div>
     </div>
@@ -1035,8 +1189,8 @@ function YearlyView({ data }: { data: TimeViewYearly | null }) {
 // ═══════════════════════════════════════════════════════
 function Card({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className={`bg-[#141414] border border-[#2a2a2a] rounded-2xl p-6 ${className}`}>
-      <div className="text-xs font-semibold text-[#666] uppercase tracking-wider mb-4">{title}</div>
+    <div className={`bg-[#141414] border border-[#1e1e1e] rounded-lg p-4 ${className}`}>
+      {title && <div className="text-[11px] font-semibold text-[#555] uppercase tracking-wide mb-3">{title}</div>}
       {children}
     </div>
   );
@@ -1045,9 +1199,9 @@ function Card({ title, children, className = "" }: { title: string; children: Re
 
 function BigStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-5 text-center">
-      <div className="text-xs text-[#666] uppercase tracking-wider mb-2">{label}</div>
-      <div className="text-2xl font-bold text-white">{value}</div>
+    <div className="bg-[#141414] border border-[#1e1e1e] rounded-lg p-4 text-center">
+      <div className="text-[10px] text-[#555] uppercase tracking-wide mb-1.5">{label}</div>
+      <div className="text-xl font-bold text-white">{value}</div>
     </div>
   );
 }
