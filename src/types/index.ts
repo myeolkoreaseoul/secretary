@@ -227,6 +227,83 @@ export interface TutorResponse {
   related_concepts?: string[];
 }
 
+// Activity Event (통합 활동 이벤트)
+export interface ActivityEvent {
+  id: string;
+  source: string;
+  category: string;
+  title: string | null;
+  description: string | null;
+  started_at: string;
+  ended_at: string | null;
+  duration_minutes: number | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+// /api/time 응답 타입
+export interface TimeViewDaily {
+  date: string;
+  events: ActivityEvent[];
+  stats: {
+    total_minutes: number;
+    total_sessions: number;
+    projects: string[];
+    categories: Record<string, number>; // category → minutes
+    density: number; // 0-100%
+  };
+  report: DailyReportV2 | null;
+}
+
+export interface TimeViewWeekly {
+  start_date: string;
+  end_date: string;
+  days: {
+    date: string;
+    total_minutes: number;
+    categories: Record<string, number>;
+    session_count: number;
+  }[];
+  totals: {
+    total_minutes: number;
+    total_sessions: number;
+    avg_minutes_per_day: number;
+    top_projects: { name: string; minutes: number }[];
+  };
+}
+
+export interface TimeViewMonthly {
+  year: number;
+  month: number;
+  days: {
+    date: string;
+    total_minutes: number;
+    dominant_category: string | null;
+    session_count: number;
+  }[];
+  totals: {
+    total_minutes: number;
+    total_sessions: number;
+    active_days: number;
+    top_projects: { name: string; minutes: number }[];
+  };
+}
+
+export interface TimeViewYearly {
+  year: number;
+  days: {
+    date: string;
+    total_minutes: number;
+    session_count: number;
+  }[];
+  totals: {
+    total_minutes: number;
+    total_sessions: number;
+    active_days: number;
+    monthly_breakdown: { month: number; minutes: number; sessions: number }[];
+  };
+}
+
 // Claude API 분류 결과
 export interface ClassifierItem {
   category: string;

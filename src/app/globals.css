@@ -29,7 +29,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', sans-serif;
   --font-mono: var(--font-geist-mono);
 }
 
@@ -313,4 +313,50 @@
 .slack-content:has(> div > .chat-fullpage) > div {
   max-width: none;
   height: 100%;
+}
+
+/* Time page: full width, no max-width constraint */
+.slack-content:has(> div > .time-page) {
+  padding: 0;
+}
+
+.slack-content:has(> div > .time-page) > div {
+  max-width: none;
+}
+
+/* Time page nav buttons */
+.time-btn-nav {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  color: #888;
+  transition: all 150ms;
+}
+
+.time-btn-nav:hover {
+  background: #1e1e1e;
+  color: #fff;
+  border-color: #333;
+}
+
+.time-btn-today {
+  padding: 6px 16px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #888;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 150ms;
+}
+
+.time-btn-today:hover {
+  background: #141414;
+  color: #fff;
+  border-color: #333;
 }
