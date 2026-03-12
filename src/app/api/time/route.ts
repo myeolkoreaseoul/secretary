@@ -34,13 +34,13 @@ async function getDailyView(params: URLSearchParams) {
   const [eventsRes, reportRes] = await Promise.all([
     supabaseAdmin
       .from("activity_events")
-      .select("*")
+      .select("id, app_name, window_title, category, project, started_at, duration_minutes, metadata")
       .gte("started_at", kstStart)
       .lte("started_at", kstEnd)
       .order("started_at", { ascending: true }),
     supabaseAdmin
       .from("daily_reports_v2")
-      .select("*")
+      .select("id, report_date, stats")
       .eq("report_date", date)
       .single(),
   ]);
@@ -316,18 +316,18 @@ async function getLegacyView(params: URLSearchParams) {
   const [summariesRes, logsRes, reportRes] = await Promise.all([
     supabaseAdmin
       .from("hourly_summaries")
-      .select("*")
+      .select("id, date, hour, top_apps, total_minutes, category_breakdown")
       .eq("date", date)
       .order("hour", { ascending: true }),
     supabaseAdmin
       .from("activity_logs")
-      .select("*")
+      .select("id, app_name, window_title, duration_seconds, recorded_at")
       .gte("recorded_at", kstStart.toISOString())
       .lte("recorded_at", kstEnd.toISOString())
       .order("recorded_at", { ascending: true }),
     supabaseAdmin
       .from("daily_reports_v2")
-      .select("*")
+      .select("id, report_date, stats")
       .eq("report_date", date)
       .single(),
   ]);
