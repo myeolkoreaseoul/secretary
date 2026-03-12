@@ -122,9 +122,9 @@ async def fetch_events_to_summarize(client: httpx.AsyncClient, all_events: bool)
     }
 
     if not all_events:
-        # Only fetch events with bad titles
-        # Use OR filter for multiple patterns
+        # Fetch events with bad titles OR unknown project
         or_filters = [f"title.ilike.%{p}%" for p in BAD_TITLE_PATTERNS]
+        or_filters.append("title.ilike.%[unknown]%")
         params["or"] = f"({','.join(or_filters)})"
 
     all_rows = []
@@ -163,37 +163,52 @@ async def fetch_conversation_messages(client: httpx.AsyncClient, conv_id: str) -
     return resp.json()
 
 
-async def update_event_title(client: httpx.AsyncClient, event_id: str, new_title: str):
-    """Update activity_event title."""
+async def update_event(client: httpx.AsyncClient, event_id: str, new_title: str, metadata: dict | None = None):
+    """Update activity_event title and optionally metadata."""
+    body: dict = {"title": new_title}
+    if metadata:
+        body["metadata"] = metadata
     resp = await client.patch(
         f"{SUPABASE_REST_URL}/activity_events",
         headers={**SUPABASE_HEADERS, "Prefer": "return=minimal"},
         params={"id": f"eq.{event_id}"},
-        json={"title": new_title},
+        json=body,
     )
     resp.raise_for_status()
 
 
-SUMMARY_INSTRUCTION = """You are a work log summarizer. Given a coding session's user messages, produce a single concise Korean summary (1 line, max 60 chars) of what was accomplished.
+KNOWN_PROJECTS = [
+    "jd-platform", "tessera", "sangsi-checker", "rnd-audit-tool",
+    "jd-audit-portal", "svvys", "secretary", "scouter",
+    "youtube-digest", "settlement-qna",
+]
+
+SUMMARY_INSTRUCTION = """You are a work log summarizer and project classifier.
+
+Given a coding session's user messages, produce:
+1. **project**: classify into one of the known projects, or "기타" if none match
+2. **title**: a concise Korean summary (1 line, max 60 chars) of what was accomplished
+
+Known projects: """ + ", ".join(KNOWN_PROJECTS) + """
 
 Rules:
-- Write in Korean
+- Write title in Korean
 - Focus on WHAT was done, not the commands given
 - If it's about fixing a bug, say what bug
 - If it's about building a feature, say what feature
-- If it's about refactoring, say what was refactored
-- Do NOT include project names (they're already in the title prefix)
+- Do NOT include project names in the title (they're added as prefix)
 - Do NOT include timestamps or duration
 - Do NOT start with "코딩 세션" or generic words
-- If the messages are too vague to determine, write a short description based on available context
-- Output ONLY the summary line, nothing else
+- For project classification: look at file paths, imports, domain keywords, table names
+  - "settlement-qna", "정산", "QnA 시스템" → settlement-qna
+  - "tessera", "정산검토", "RPA" → tessera
+  - "secretary", "비서", "time page", "telegram bot" → secretary
+  - "jd-platform", "PMS", "R&D" → jd-platform
+  - "scouter", "트렌드", "뉴스" → scouter
+  - "youtube", "digest", "yt-" → youtube-digest
+  - If truly unclear, use "기타"
 
-Examples:
-- "시간 추적 페이지 타임박스 그리드 UI 구현"
-- "OAuth 토큰 갱신 로직 버그 수정"
-- "정산검토 배치 러너 구현 (섹션 1)"
-- "Supabase activity_events 테이블 마이그레이션"
-- "대시보드 카테고리 필터 추가"
+Output ONLY valid JSON: {"project": "...", "title": "..."}
 """
 
 
@@ -245,7 +260,8 @@ async def main():
             if not user_texts:
                 continue
 
-            context = f"프로젝트: {project}\n세션 길이: {event.get('duration_minutes', 0)}분\n\n사용자 메시지:\n"
+            proj_hint = f"프로젝트: {project}" if project != "unknown" else "프로젝트: 미분류 (분류 필요)"
+            context = f"{proj_hint}\n세션 길이: {event.get('duration_minutes', 0)}분\n\n사용자 메시지:\n"
             context += "\n---\n".join(user_texts[:5])
 
             # Call GPT
@@ -266,17 +282,43 @@ async def main():
             if not summary or len(summary) < 3:
                 continue
 
-            # Clean summary
-            summary = summary.strip().strip('"').strip("'")
-            if len(summary) > 80:
-                summary = summary[:77] + "..."
+            # Parse JSON response from GPT
+            classified_project = project
+            clean_title = summary.strip()
+            try:
+                # Try to extract JSON
+                json_match = clean_title
+                if "{" in clean_title:
+                    json_match = clean_title[clean_title.index("{"):clean_title.rindex("}") + 1]
+                parsed = json.loads(json_match)
+                classified_project = parsed.get("project", project)
+                clean_title = parsed.get("title", "")
+            except (json.JSONDecodeError, ValueError):
+                # Fallback: treat entire response as title
+                clean_title = clean_title.strip('"').strip("'")
 
-            new_title = f"[{project}] {summary}"
+            if not clean_title or len(clean_title) < 3:
+                continue
+
+            if len(clean_title) > 80:
+                clean_title = clean_title[:77] + "..."
+
+            # Validate project
+            if classified_project not in KNOWN_PROJECTS and classified_project != "기타":
+                classified_project = project  # keep original if GPT hallucinated
+
+            new_title = f"[{classified_project}] {clean_title}"
+
+            # Update metadata if project changed from unknown
+            updated_metadata = None
+            if project == "unknown" and classified_project != "unknown":
+                updated_metadata = {**metadata, "project": classified_project}
 
             if args.dry_run:
-                log.info("[DRY] %s → %s", event["title"][:40], new_title)
+                proj_change = f" ({project}→{classified_project})" if classified_project != project else ""
+                log.info("[DRY] %s → %s%s", event["title"][:40], new_title, proj_change)
             else:
-                await update_event_title(client, event["id"], new_title)
+                await update_event(client, event["id"], new_title, updated_metadata)
                 log.info("[%d/%d] %s", i + 1, len(events), new_title)
                 updated += 1
 

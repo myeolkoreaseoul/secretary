@@ -134,7 +134,7 @@ export default function TimePage() {
       const json = await res.json();
       if (view === "daily") {
         setEvents(json.events || []);
-        setStats(json.stats || stats);
+        setStats(json.stats || { total_minutes: 0, total_sessions: 0, projects: [], categories: {}, density: 0 });
         setReport(json.report || null);
         fetchPlan(date);
       }
@@ -257,15 +257,19 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
 
   // Load notes for this date
   useEffect(() => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    let cancelled = false;
     setNotesLoaded(false);
     apiFetch(`/api/time/notes?date=${date}`)
       .then(r => r.json())
       .then((n: DailyNotes) => {
+        if (cancelled) return;
         setBrainDump(n.brain_dump || "");
         setPriorities(n.priorities || []);
         setNotesLoaded(true);
       })
-      .catch(() => setNotesLoaded(true));
+      .catch(() => { if (!cancelled) setNotesLoaded(true); });
+    return () => { cancelled = true; };
   }, [date]);
 
   // Auto-save brain dump with debounce
@@ -306,8 +310,8 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
 
   return (
     <div className="space-y-6">
-      {/* ════ TOP SECTION: Brain Dump + Priorities | Timebox (50:50) ════ */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      {/* ════ TOP SECTION: Brain Dump + Priorities (1/3) | Timebox (2/3) ════ */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_2fr] gap-6">
         {/* ── Left Half: Top 3 + Brain Dump ── */}
         <div className="space-y-4">
           <Card title="TOP 3 PRIORITIES">
@@ -377,6 +381,20 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
         </div>
       </div>
 
+      {/* ════ HOURLY SUMMARY: 시간대별 뭘 했는지 ════ */}
+      {events.length > 0 && (
+        <Card title="시간대별 활동">
+          <HourlySummary events={events} />
+        </Card>
+      )}
+
+      {/* ════ PER-PROJECT SUMMARY: 건별 뭘 했나 ════ */}
+      {events.length > 0 && (
+        <Card title="프로젝트별 작업 내역">
+          <ProjectSummary events={events} />
+        </Card>
+      )}
+
       {/* ── AI Insight (3 lines) ── */}
       <AiInsight date={date} eventCount={events.length} />
     </div>
@@ -415,7 +433,7 @@ function CategoryDonut({ categories, total }: { categories: Record<string, numbe
             stroke={CAT_COLORS[cat] || "#666"} strokeWidth={strokeW}
             strokeDasharray={`${dash} ${circumference - dash}`}
             strokeDashoffset={-offset}
-            strokeLinecap="round"
+            strokeLinecap="butt"
             className="transition-all duration-500" />
         );
         offset += dash;
@@ -441,8 +459,8 @@ function MiniStat({ label, value, icon: Icon, color = "#00E676" }: { label: stri
   );
 }
 
-// ── Timebox Grid (Plan | Do, 30-min slots, Elon Musk style) ──
-const SLOT_H = 40; // px per 30-min slot
+// ── Timebox Grid (Plan | T | Do, compact 30-min slots) ──
+const SLOT_H = 24; // px per 30-min slot (1.2x: 24h fits in ~1008px)
 
 function TimeboxGrid({ events: rawEvents, planBlocks, date, onPlanAdd, onPlanDelete }: {
   events: ActivityEvent[];
@@ -456,7 +474,7 @@ function TimeboxGrid({ events: rawEvents, planBlocks, date, onPlanAdd, onPlanDel
 
   // Day starts at 7:00, ends at next 03:00 (7~27 = 20 hours)
   const startHour = 7;
-  const endHour = 26; // 26 = 02:00 next day
+  const endHour = 27; // 27 = 03:00 next day
   const totalSlots = (endHour - startHour + 1) * 2;
 
   // Wrap early morning (0~6) to after midnight (24~30)
@@ -496,41 +514,51 @@ function TimeboxGrid({ events: rawEvents, planBlocks, date, onPlanAdd, onPlanDel
 
   return (
     <div className="flex flex-col h-full">
-      {/* Column headers */}
-      <div className="flex border-b border-[#2a2a2a] shrink-0">
-        <div className="w-14 shrink-0" />
-        <div className="flex-1 py-3 px-4 text-center border-r border-[#2a2a2a]">
-          <div className="flex items-center justify-center gap-2">
-            <span className="text-xs font-bold text-[#888] uppercase tracking-widest">PLAN</span>
-            <button onClick={() => setShowAddPlan(true)} className="w-5 h-5 rounded bg-[#2a2a2a] hover:bg-[#00E676]/20 flex items-center justify-center transition-colors">
-              <Plus className="w-3 h-3 text-[#888] hover:text-[#00E676]" />
+      {/* Column headers: Plan (narrow) | T (narrow) | Do (wide) */}
+      <div className="grid grid-cols-[2fr_32px_5fr] border-b border-[#2a2a2a] shrink-0">
+        <div className="py-2 px-3 text-center">
+          <div className="flex items-center justify-center gap-1.5">
+            <span className="text-xs font-bold text-[#888] uppercase tracking-widest">Plan</span>
+            <button onClick={() => setShowAddPlan(true)} className="w-4 h-4 rounded bg-[#2a2a2a] hover:bg-[#00E676]/20 flex items-center justify-center transition-colors">
+              <Plus className="w-2.5 h-2.5 text-[#888] hover:text-[#00E676]" />
             </button>
           </div>
         </div>
-        <div className="flex-1 py-3 px-4 text-center">
-          <span className="text-xs font-bold text-[#00E676] uppercase tracking-widest">DO</span>
+        <div className="py-2 text-center border-x border-[#2a2a2a]">
+          <span className="text-xs font-bold text-[#555] uppercase">T</span>
+        </div>
+        <div className="py-2 px-3 text-center">
+          <span className="text-xs font-bold text-[#00E676] uppercase tracking-widest">Do</span>
         </div>
       </div>
 
       {/* Add Plan Modal */}
       {showAddPlan && <AddPlanModal date={date} onAdd={async (b) => { await onPlanAdd(b); setShowAddPlan(false); }} onClose={() => setShowAddPlan(false)} />}
 
-      {/* Grid */}
+      {/* Grid: Plan(2fr) | T(32px) | Do(5fr) — compact layout */}
       <div className="relative overflow-y-auto flex-1" style={{ minHeight: `${gridH}px` }}>
-        {/* Hour lines */}
+        {/* CSS variables for column positions */}
+        {/* Plan: 0 ~ planW, T: planW ~ planW+32, Do: planW+32 ~ 100% */}
+        {/* Using percentage: Plan ≈ 28.6%, T ≈ fixed 32px, Do ≈ 71.4% minus 32px */}
+
+        {/* Hour lines + time labels in T column */}
         {Array.from({ length: endHour - startHour + 1 }, (_, i) => {
           const hour = startHour + i;
           const y = i * 2 * SLOT_H;
           return (
             <div key={hour} className="absolute left-0 right-0" style={{ top: `${y}px` }}>
-              <div className="absolute left-0 w-14 text-right pr-3 -top-[8px]">
-                <span className="text-[11px] text-[#444] font-mono">{fmtHour(hour)}</span>
+              {/* Full-width hour line */}
+              <div className="absolute left-0 right-0 border-t border-[#1e1e1e]" />
+              {/* Half-hour dashed line */}
+              {SLOT_H >= 15 && <div className="absolute left-0 right-0 border-t border-[#171717] border-dashed" style={{ top: `${SLOT_H}px` }} />}
+              {/* Time label in T column */}
+              <div className="absolute -top-[7px] timebox-t-col text-center">
+                <span className="text-[11px] text-[#555] leading-none">{fmtHour(hour)}</span>
               </div>
-              <div className="absolute left-14 right-0 border-t border-[#1e1e1e]" />
-              <div className="absolute left-14 right-0 border-t border-[#171717] border-dashed" style={{ top: `${SLOT_H}px` }} />
-              {/* Center divider */}
-              <div className="absolute left-14 right-0 h-full" style={{ height: `${SLOT_H * 2}px` }}>
-                <div className="absolute left-1/2 top-0 bottom-0 border-l border-[#222]" />
+              {/* T column vertical borders */}
+              <div className="absolute top-0 timebox-t-col" style={{ height: `${SLOT_H * 2}px` }}>
+                <div className="absolute left-0 top-0 bottom-0 border-l border-[#222]" />
+                <div className="absolute right-0 top-0 bottom-0 border-r border-[#222]" />
               </div>
             </div>
           );
@@ -538,62 +566,55 @@ function TimeboxGrid({ events: rawEvents, planBlocks, date, onPlanAdd, onPlanDel
 
         {/* NOW indicator */}
         {isToday && nowY >= 0 && nowY < gridH && (
-          <div className="absolute left-14 right-0 z-20 pointer-events-none" style={{ top: `${nowY}px` }}>
+          <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top: `${nowY}px` }}>
             <div className="flex items-center">
-              <div className="w-2.5 h-2.5 rounded-full bg-[#ff4757] -ml-1.5 shrink-0" />
+              <div className="flex-1 border-t-2 border-[#ff4757]" />
+              <div className="w-2 h-2 rounded-full bg-[#ff4757] shrink-0" />
               <div className="flex-1 border-t-2 border-[#ff4757]" />
             </div>
           </div>
         )}
 
-        {/* PLAN column (left half) */}
-        <div className="absolute top-0 bottom-0" style={{ left: "56px", width: "calc(50% - 28px)" }}>
+        {/* PLAN column (narrow left) */}
+        <div className="absolute top-0 bottom-0 timebox-plan-col">
           {placedPlans.map(({ pb, top, height, color }) => (
             <div key={pb.id}
-              className="absolute left-1 right-1 rounded-md px-2 py-1.5 overflow-hidden group cursor-default"
-              style={{ top: `${top}px`, height: `${height}px`, backgroundColor: `${color}15`, borderLeft: `3px solid ${color}40` }}>
-              <div className="flex items-start justify-between">
-                <div className="min-w-0 flex-1">
-                  <div className="text-[12px] text-[#999] truncate">{pb.title}</div>
-                  {height > 30 && <div className="text-[10px] text-[#555] mt-0.5">{pb.start_time}~{pb.end_time}</div>}
-                </div>
-                <button onClick={() => onPlanDelete(pb.id)}
-                  className="opacity-0 group-hover:opacity-100 w-4 h-4 flex items-center justify-center transition-opacity">
-                  <X className="w-3 h-3 text-[#666] hover:text-[#ff4757]" />
-                </button>
-              </div>
+              className="absolute left-0.5 right-0.5 rounded px-1 py-0.5 overflow-hidden group cursor-default"
+              style={{ top: `${top}px`, height: `${height}px`, backgroundColor: `${color}15`, borderLeft: `2px solid ${color}40` }}>
+              <div className="text-[12px] text-[#999] truncate leading-tight">{pb.title}</div>
+              <button onClick={() => onPlanDelete(pb.id)}
+                className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 w-3 h-3 flex items-center justify-center transition-opacity">
+                <X className="w-2 h-2 text-[#666] hover:text-[#ff4757]" />
+              </button>
             </div>
           ))}
           {placedPlans.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <button onClick={() => setShowAddPlan(true)} className="text-xs text-[#444] hover:text-[#888] transition-colors">
-                + 계획 추가
+              <button onClick={() => setShowAddPlan(true)} className="text-[10px] text-[#444] hover:text-[#888] transition-colors">
+                + 추가
               </button>
             </div>
           )}
         </div>
 
-        {/* DO column (right half) */}
-        <div className="absolute top-0 bottom-0" style={{ left: "calc(50% + 28px)", right: "4px" }}>
+        {/* DO column (wide right) */}
+        <div className="absolute top-0 bottom-0 timebox-do-col">
           {placedEvents.map(({ ev, top, height, color, project, dur }) => (
             <div key={ev.id}
-              className="absolute left-1 right-1 rounded-md px-2 py-1.5 overflow-hidden cursor-default transition-all hover:brightness-125 hover:z-10"
+              className="absolute left-0.5 right-0.5 rounded px-1.5 py-0.5 overflow-hidden cursor-default transition-all hover:brightness-125 hover:z-10"
               style={{ top: `${top}px`, height: `${height}px`, backgroundColor: `${color}20`, borderLeft: `3px solid ${color}` }}>
-              <div className="flex items-start justify-between gap-1 h-full">
+              <div className="flex items-center gap-1 h-full">
                 <div className="min-w-0 flex-1 overflow-hidden">
-                  <div className="text-[12px] font-medium text-white truncate leading-tight">{truncTitle(ev.title)}</div>
-                  {project && height > 35 && <div className="text-[10px] text-[#666] mt-0.5 truncate">{project}</div>}
-                  {height > 50 && (
-                    <div className="text-[10px] text-[#555] mt-0.5">{fmtTime(ev.started_at)}{ev.ended_at ? `~${fmtTime(ev.ended_at)}` : ""}</div>
-                  )}
+                  <div className="text-[13px] font-medium text-white truncate leading-tight">{truncTitle(ev.title)}</div>
+                  {project && height > 28 && <div className="text-[11px] text-[#666] truncate">{project}</div>}
                 </div>
-                <span className="text-[10px] text-[#888] font-mono shrink-0">{fmtDurShort(dur)}</span>
+                <span className="text-[11px] text-[#888] shrink-0">{fmtDurShort(dur)}</span>
               </div>
             </div>
           ))}
           {events.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-xs text-[#444]">활동 기록 없음</span>
+              <span className="text-[10px] text-[#444]">활동 기록 없음</span>
             </div>
           )}
         </div>
@@ -615,10 +636,11 @@ function AddPlanModal({ date, onAdd, onClose }: {
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async () => {
-    if (!title.trim()) return;
+    if (!title.trim() || startTime >= endTime) return;
     setSaving(true);
-    await onAdd({ date, start_time: startTime, end_time: endTime, title: title.trim(), category, color: null });
-    setSaving(false);
+    try {
+      await onAdd({ date, start_time: startTime, end_time: endTime, title: title.trim(), category, color: null });
+    } finally { setSaving(false); }
   };
 
   return (
@@ -723,6 +745,66 @@ function TopPrioritiesChecklist({ priorities, onUpdate, brainDump, date }: {
   );
 }
 
+// ── Hourly Summary (시간대별 활동) ──
+function HourlySummary({ events }: { events: ActivityEvent[] }) {
+  // Group events by KST hour
+  const hourMap: Record<number, { titles: string[]; cats: Set<string> }> = {};
+  for (const e of events) {
+    const h = (new Date(e.started_at).getUTCHours() + 9) % 24;
+    if (!hourMap[h]) hourMap[h] = { titles: [], cats: new Set() };
+    hourMap[h].cats.add(e.category);
+    const t = e.title?.replace(/^\[.*?\]\s*/, "").slice(0, 40) || "";
+    if (t) hourMap[h].titles.push(t);
+  }
+  const hours = Object.keys(hourMap).map(Number).sort((a, b) => a - b);
+  if (!hours.length) return <div className="text-xs text-[#555]">활동 없음</div>;
+
+  return (
+    <div className="space-y-1.5">
+      {hours.map(h => {
+        const { titles, cats } = hourMap[h];
+        const catLabel = [...cats].map(c => CAT_LABELS[c] || c).join("/");
+        return (
+          <div key={h} className="flex gap-3 text-[12px] leading-relaxed">
+            <span className="text-[#555] font-mono w-6 shrink-0">{h}</span>
+            <span className="text-[#00E676] w-10 shrink-0">{catLabel}</span>
+            <span className="text-[#999] truncate">{titles.join(" · ")}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Project Summary (건별 작업 내역) ──
+function ProjectSummary({ events }: { events: ActivityEvent[] }) {
+  const projMap: Record<string, string[]> = {};
+  for (const e of events) {
+    const p = String((e.metadata as Record<string, unknown>)?.project || "기타");
+    if (!projMap[p]) projMap[p] = [];
+    const t = e.title?.replace(/^\[.*?\]\s*/, "") || "";
+    if (t && !projMap[p].includes(t)) projMap[p].push(t);
+  }
+  const projects = Object.entries(projMap).sort(([, a], [, b]) => b.length - a.length);
+  if (!projects.length) return null;
+
+  return (
+    <div className="space-y-3">
+      {projects.map(([proj, titles]) => (
+        <div key={proj}>
+          <div className="text-[13px] font-semibold text-white mb-1">{proj} <span className="text-[#555] font-normal">({titles.length}건)</span></div>
+          <div className="space-y-0.5 pl-3">
+            {titles.slice(0, 5).map((t, i) => (
+              <div key={i} className="text-[11px] text-[#888] truncate">· {t}</div>
+            ))}
+            {titles.length > 5 && <div className="text-[10px] text-[#555]">+{titles.length - 5}건 더</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── AI Insight (lazy-loaded) ──
 function AiInsight({ date, eventCount }: { date: string; eventCount: number }) {
   const [insight, setInsight] = useState<string | null>(null);
@@ -730,12 +812,14 @@ function AiInsight({ date, eventCount }: { date: string; eventCount: number }) {
 
   useEffect(() => {
     if (eventCount === 0) { setInsight(null); return; }
+    let cancelled = false;
     setLoading(true);
     apiFetch(`/api/time/insight?date=${date}`)
       .then(r => r.json())
-      .then(d => setInsight(d.insight || null))
-      .catch(() => setInsight(null))
-      .finally(() => setLoading(false));
+      .then(d => { if (!cancelled) setInsight(d.insight || null); })
+      .catch(() => { if (!cancelled) setInsight(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [date, eventCount]);
 
   if (!insight && !loading) return null;
@@ -754,31 +838,6 @@ function AiInsight({ date, eventCount }: { date: string; eventCount: number }) {
   );
 }
 
-// ── Categories Bar ──
-function CategoriesBar({ categories, total }: { categories: Record<string, number>; total: number }) {
-  if (total === 0) return <div className="text-sm text-[#666]">데이터 없음</div>;
-  const sorted = Object.entries(categories).sort(([,a],[,b]) => b - a);
-
-  return (
-    <div className="space-y-4">
-      <div className="h-4 rounded-full overflow-hidden flex bg-[#1a1a1a]">
-        {sorted.map(([cat, mins]) => (
-          <div key={cat} style={{ width: `${(mins/total)*100}%`, backgroundColor: CAT_COLORS[cat] || "#666" }}
-            className="transition-all duration-300" title={`${CAT_LABELS[cat]||cat}: ${fmtDur(mins)}`} />
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-5 gap-y-2">
-        {sorted.map(([cat, mins]) => (
-          <div key={cat} className="flex items-center gap-2 text-sm">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: CAT_COLORS[cat] || "#666" }} />
-            <span className="text-[#888]">{CAT_LABELS[cat]||cat}</span>
-            <span className="text-white font-medium">{fmtDur(mins)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // ═══════════════════════════════════════════════════════
 // Weekly View
@@ -983,17 +1042,6 @@ function Card({ title, children, className = "" }: { title: string; children: Re
   );
 }
 
-function StatBox({ icon: Icon, label, value, color }: { icon: typeof Clock; label: string; value: string; color: string }) {
-  return (
-    <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-5">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className="w-4 h-4" style={{ color }} />
-        <span className="text-xs text-[#666] uppercase tracking-wider">{label}</span>
-      </div>
-      <div className="text-2xl font-bold text-white">{value}</div>
-    </div>
-  );
-}
 
 function BigStat({ label, value }: { label: string; value: string }) {
   return (
@@ -1007,10 +1055,10 @@ function BigStat({ label, value }: { label: string; value: string }) {
 function Skeleton({ view }: { view: View }) {
   if (view === "daily") {
     return (
-      <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-6">
-        <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-3">{[1,2,3,4].map(i => <div key={i} className="h-24 rounded-2xl bg-[#141414] animate-pulse" />)}</div>
-          {[1,2].map(i => <div key={i} className="h-40 rounded-2xl bg-[#141414] animate-pulse" />)}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_2fr] gap-6">
+        <div className="space-y-4">
+          <div className="h-40 rounded-2xl bg-[#141414] animate-pulse" />
+          <div className="h-[320px] rounded-2xl bg-[#141414] animate-pulse" />
         </div>
         <div className="h-[500px] rounded-2xl bg-[#141414] animate-pulse" />
       </div>
@@ -1026,23 +1074,8 @@ function Empty() {
 // ═══════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════
-function buildHourSlots(events: ActivityEvent[]) {
-  let minH = 23, maxH = 0;
-  const byHour: Record<number, ActivityEvent[]> = {};
-  for (const e of events) {
-    const dt = new Date(e.started_at);
-    const h = (dt.getUTCHours() + 9) % 24;
-    minH = Math.min(minH, h); maxH = Math.max(maxH, h);
-    if (!byHour[h]) byHour[h] = [];
-    byHour[h].push(e);
-  }
-  const start = Math.max(0, minH - 1), end = Math.min(23, maxH + 1);
-  const slots: { hour: number; events: ActivityEvent[] }[] = [];
-  for (let h = start; h <= end; h++) slots.push({ hour: h, events: byHour[h] || [] });
-  return slots;
-}
 
-function fmtHour(h: number): string { return `${String(h % 24).padStart(2, "0")}:00`; }
+function fmtHour(h: number): string { return `${h % 24}`; }
 
 function fmtTime(iso: string): string {
   const d = new Date(iso);
@@ -1050,10 +1083,6 @@ function fmtTime(iso: string): string {
   return `${String(kst.getUTCHours()).padStart(2, "0")}:${String(kst.getUTCMinutes()).padStart(2, "0")}`;
 }
 
-function kstHour(iso: string): number {
-  const d = new Date(iso);
-  return (d.getUTCHours() + 9) % 24;
-}
 
 function kstTotalMinutes(iso: string): number {
   const d = new Date(iso);

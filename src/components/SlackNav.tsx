@@ -114,8 +114,10 @@ const todoFilters = [
 
 /* ── time 뷰 ── */
 const timeViews = [
-  { href: "/time", label: "타임라인", icon: BarChart3 },
-  { href: "/time?view=weekly", label: "주간 리포트", icon: Calendar },
+  { href: "/time", label: "일간", icon: Clock },
+  { href: "/time?view=weekly", label: "주간", icon: Calendar },
+  { href: "/time?view=monthly", label: "월간", icon: BarChart3 },
+  { href: "/time?view=yearly", label: "연간", icon: BarChart3 },
 ];
 
 /* ═══════════════════════════════════════

@@ -3,21 +3,27 @@
 Runs via systemd timer at 7am KST.
 
 Gathers yesterday's hourly_summaries + telegram_messages,
-generates a report via Gemini CLI, saves to daily_reports_v2,
+generates a report via Haiku API (OAuth), saves to daily_reports_v2,
 and sends summary to Telegram.
 """
 
 import asyncio
 import json
 import logging
-import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from bot.config import SUPABASE_REST_URL, SUPABASE_HEADERS, TELEGRAM_ALLOWED_USERS
+from bot.config import (
+    ANTHROPIC_API_URL,
+    CLAUDE_MODEL_SIMPLE,
+    SUPABASE_REST_URL,
+    SUPABASE_HEADERS,
+    TELEGRAM_ALLOWED_USERS,
+)
+from bot.oauth_client import oauth
 from bot import telegram_sender as tg
 
 import httpx
@@ -27,8 +33,6 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
 log = logging.getLogger("daily_report")
-
-GEMINI_CLI = "/home/john/.nvm/versions/node/v20.19.6/bin/gemini"
 
 
 async def fetch_yesterday_data(client: httpx.AsyncClient, date_str: str) -> dict:
@@ -64,8 +68,10 @@ async def fetch_yesterday_data(client: httpx.AsyncClient, date_str: str) -> dict
     return {"summaries": summaries, "messages": messages}
 
 
-async def generate_report_via_gemini_cli(date_str: str, data: dict) -> str | None:
-    """Use Gemini CLI (subscription) to generate a daily report."""
+async def generate_report_via_api(
+    client: httpx.AsyncClient, date_str: str, data: dict
+) -> str | None:
+    """Use Haiku API (OAuth) to generate a daily report."""
     prompt = (
         f"{date_str} Daily Report를 작성해주세요.\n\n"
         f"시간대별 활동 요약:\n{json.dumps(data['summaries'], ensure_ascii=False, indent=2)}\n\n"
@@ -84,21 +90,28 @@ async def generate_report_via_gemini_cli(date_str: str, data: dict) -> str | Non
     )
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            GEMINI_CLI, "-p", prompt,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "PATH": "/home/john/.nvm/versions/node/v20.19.6/bin:" + os.environ.get("PATH", "")},
+        headers = await oauth.get_headers()
+        resp = await client.post(
+            ANTHROPIC_API_URL,
+            headers=headers,
+            json={
+                "model": CLAUDE_MODEL_SIMPLE,
+                "max_tokens": 1024,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=60.0,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-        if proc.returncode == 0 and stdout:
-            return stdout.decode().strip()
-        err_msg = stderr.decode()[:200] if stderr else "no output"
-        log.error("Gemini CLI failed (rc=%s): %s", proc.returncode, err_msg)
-    except asyncio.TimeoutError:
-        log.error("Gemini CLI timeout (120s)")
+
+        if resp.status_code == 401:
+            oauth.mark_server_rejected()
+            log.error("OAuth token rejected (401)")
+            return None
+
+        resp.raise_for_status()
+        result = resp.json()
+        return result["content"][0]["text"]
     except Exception as e:
-        log.error("Gemini CLI error: %s", e)
+        log.error("Haiku API error: %s", e)
 
     return None
 
@@ -148,8 +161,8 @@ async def main():
             log.info("No data for %s, skipping report", date_str)
             return
 
-        # Generate report via Gemini CLI
-        report_content = await generate_report_via_gemini_cli(date_str, data)
+        # Generate report via Haiku API
+        report_content = await generate_report_via_api(client, date_str, data)
 
         if not report_content:
             # Fallback: simple summary

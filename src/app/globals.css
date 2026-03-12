@@ -360,3 +360,18 @@
   color: #fff;
   border-color: #333;
 }
+
+/* Timebox grid column positions: Plan(2fr) | T(32px) | Do(5fr) */
+/* Total = 7fr + 32px. Plan = 2/7 of remaining, Do = 5/7 of remaining */
+.timebox-t-col {
+  left: calc((100% - 32px) * 2 / 7);
+  width: 32px;
+}
+.timebox-plan-col {
+  left: 0;
+  width: calc((100% - 32px) * 2 / 7);
+}
+.timebox-do-col {
+  left: calc((100% - 32px) * 2 / 7 + 32px);
+  right: 0;
+}

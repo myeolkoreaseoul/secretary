@@ -192,25 +192,76 @@ def conv_to_event(conv: dict) -> dict:
     }
 
 
+async def fetch_existing_ref_ids(client: httpx.AsyncClient, ref_ids: list[str]) -> set[str]:
+    """Fetch ref_ids that already exist in activity_events."""
+    existing: set[str] = set()
+    # Query in chunks (URL length limit)
+    chunk_size = 100
+    for i in range(0, len(ref_ids), chunk_size):
+        chunk = ref_ids[i:i + chunk_size]
+        ids_csv = ",".join(chunk)
+        resp = await client.get(
+            f"{SUPABASE_REST_URL}/activity_events",
+            headers=SUPABASE_HEADERS,
+            params={
+                "select": "metadata->ref_id",
+                "source": "eq.ai_coding",
+                "metadata->>ref_id": f"in.({ids_csv})",
+            },
+        )
+        if resp.status_code < 300:
+            for row in resp.json():
+                rid = row.get("ref_id")
+                if rid:
+                    existing.add(rid)
+    return existing
+
+
 async def upsert_events(client: httpx.AsyncClient, events: list[dict]) -> int:
-    """Upsert events in batches."""
+    """Insert new events, skipping duplicates by ref_id pre-check."""
+    # Pre-filter: remove events whose ref_id already exists
+    ref_ids = [
+        (ev.get("metadata") or {}).get("ref_id")
+        for ev in events
+        if (ev.get("metadata") or {}).get("ref_id")
+    ]
+    existing = await fetch_existing_ref_ids(client, ref_ids) if ref_ids else set()
+    new_events = [
+        ev for ev in events
+        if (ev.get("metadata") or {}).get("ref_id") not in existing
+    ]
+    if not new_events:
+        log.info("All %d events already exist, skipping", len(events))
+        return 0
+
+    log.info("Inserting %d new events (%d already exist)", len(new_events), len(existing))
+
     inserted = 0
     batch_size = 50
-
-    for i in range(0, len(events), batch_size):
-        batch = events[i:i + batch_size]
+    for i in range(0, len(new_events), batch_size):
+        batch = new_events[i:i + batch_size]
         resp = await client.post(
             f"{SUPABASE_REST_URL}/activity_events",
             headers={
                 **SUPABASE_HEADERS,
-                "Prefer": "resolution=merge-duplicates,return=minimal",
+                "Prefer": "return=minimal",
             },
             json=batch,
         )
         if resp.status_code < 300:
             inserted += len(batch)
         else:
-            log.error("Upsert failed: %s", resp.text[:200])
+            # Fallback: insert one by one
+            for ev in batch:
+                r2 = await client.post(
+                    f"{SUPABASE_REST_URL}/activity_events",
+                    headers={**SUPABASE_HEADERS, "Prefer": "return=minimal"},
+                    json=ev,
+                )
+                if r2.status_code < 300:
+                    inserted += 1
+                else:
+                    log.warning("Skip duplicate: %s", (ev.get("metadata") or {}).get("ref_id", "?")[:36])
 
     return inserted
 

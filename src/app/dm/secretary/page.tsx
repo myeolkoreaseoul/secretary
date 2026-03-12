@@ -57,6 +57,7 @@ export default function SecretaryChatPage() {
     if (!historyLoading) inputRef.current?.focus();
   }, [historyLoading]);
 
+  // Realtime 구독 (있으면 즉시 반영)
   useRealtimeInsert({
     table: 'telegram_messages',
     filter: `chat_id=eq.${ownerChatId}`,
@@ -71,6 +72,31 @@ export default function SecretaryChatPage() {
     }, []),
   });
 
+  // 폴링 fallback: Realtime이 불안정할 때 3초마다 DB 확인
+  const lastSentAt = useRef<string | null>(null);
+  useEffect(() => {
+    if (!loading || !lastSentAt.current) return;
+    const sentAt = lastSentAt.current;
+    const interval = setInterval(async () => {
+      try {
+        const res = await apiFetch(`/api/history?chat_id=${ownerChatId}&page=1&limit=3`);
+        const data = await res.json();
+        const msgs = data.messages || [];
+        const newAssistant = msgs.find(
+          (m: { role: string; id?: string; created_at?: string }) =>
+            m.role === 'assistant' && m.created_at && m.created_at > sentAt && !(m.id && seenIds.current.has(m.id))
+        );
+        if (newAssistant) {
+          if (newAssistant.id) seenIds.current.add(newAssistant.id);
+          setMessages((prev) => [...prev, { role: 'assistant', content: newAssistant.content, id: newAssistant.id }]);
+          setLoading(false);
+          lastSentAt.current = null;
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [loading]);
+
   const send = async () => {
     const msg = input.trim();
     if (!msg || loading || historyLoading) return;
@@ -78,6 +104,7 @@ export default function SecretaryChatPage() {
     setMessages((prev) => [...prev, { role: "user", content: msg }]);
     setInput("");
     setLoading(true);
+    lastSentAt.current = new Date().toISOString();
 
     try {
       const res = await apiFetch("/api/chat", {
