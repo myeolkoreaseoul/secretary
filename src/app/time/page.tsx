@@ -409,7 +409,7 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
                   value={brainDump}
                   onChange={e => saveBrainDump(e.target.value)}
                   placeholder={"오늘 할 일을 자유롭게 적으세요...\n\n예: 오전에 tessera 빌드, 점심 후 secretary UI 손보기, 저녁에 운동"}
-                  className="w-full min-h-[280px] bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl p-4 pr-20 text-[13px] text-[#ccc] placeholder-[#444] resize-y outline-none focus:border-[#00E676]/50 leading-relaxed"
+                  className="w-full min-h-[280px] bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl p-4 pr-20 text-[15px] text-[#ccc] placeholder-[#444] resize-y outline-none focus:border-[#00E676]/50 leading-relaxed"
                 />
                 {brainDump.trim() && (
                   <button onClick={parseBrainDump} disabled={parsing}
@@ -438,8 +438,8 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
               {Object.entries(stats.categories).sort(([,a],[,b]) => b - a).map(([cat, mins]) => (
                 <div key={cat} className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: CAT_COLORS[cat] || "#666" }} />
-                  <span className="text-[12px] text-[#888] flex-1">{CAT_LABELS[cat] || cat}</span>
-                  <span className="text-[12px] text-white font-medium font-mono">{fmtDurShort(mins)}</span>
+                  <span className="text-[14px] text-[#888] flex-1">{CAT_LABELS[cat] || cat}</span>
+                  <span className="text-[14px] text-white font-medium font-mono">{fmtDurShort(mins)}</span>
                 </div>
               ))}
             </div>
@@ -452,8 +452,8 @@ function DailyView({ events, stats, report, planBlocks, date, onPlanAdd, onPlanD
             {projectStats.slice(0, 6).map(p => (
               <div key={p.name}>
                 <div className="flex justify-between mb-0.5">
-                  <span className="text-[12px] text-white truncate">{p.name}</span>
-                  <span className="text-[11px] text-[#888] font-mono ml-2">{fmtDurShort(p.mins)}</span>
+                  <span className="text-[14px] text-white truncate">{p.name}</span>
+                  <span className="text-[13px] text-[#888] font-mono ml-2">{fmtDurShort(p.mins)}</span>
                 </div>
                 <div className="h-1.5 rounded-full bg-[#1a1a1a]">
                   <div className="h-full rounded-full bg-[#00E676] transition-all duration-500"
@@ -546,8 +546,8 @@ function MiniStat({ label, value, icon: Icon, color = "#00E676" }: { label: stri
     <div className="bg-[#141414] border border-[#1e1e1e] rounded-lg p-3 flex items-center gap-2.5">
       <Icon className="w-3.5 h-3.5 shrink-0" style={{ color }} />
       <div>
-        <div className="text-base font-bold text-white leading-tight">{value}</div>
-        <div className="text-[9px] text-[#555] uppercase tracking-wide">{label}</div>
+        <div className="text-lg font-bold text-white leading-tight">{value}</div>
+        <div className="text-[11px] text-[#555] uppercase tracking-wide">{label}</div>
       </div>
     </div>
   );
@@ -686,19 +686,19 @@ function TimeboxGrid({ events: rawEvents, planBlocks, date, onPlanAdd, onPlanDel
           <tr style={{ borderBottom: "1px solid #2a2a2a" }}>
             <th className="py-1.5 text-left px-2">
               <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-semibold text-[#888] uppercase tracking-wider">Plan</span>
+                <span className="text-[13px] font-semibold text-[#888] uppercase tracking-wide">Plan</span>
                 <button onClick={() => setShowAddPlan(true)} className="w-4 h-4 rounded bg-[#222] hover:bg-[#00E676]/20 flex items-center justify-center transition-colors">
                   <Plus className="w-2.5 h-2.5 text-[#666] hover:text-[#00E676]" />
                 </button>
               </div>
             </th>
-            <th className="py-1.5 text-[9px] text-[#444] font-normal">T</th>
+            <th className="py-1.5 text-[11px] text-[#555] font-normal">T</th>
             <th className="py-1.5 px-1">
               <div className="flex items-center">
-                <span className="text-[11px] font-semibold text-[#00E676] uppercase tracking-wider mr-1.5">Do</span>
+                <span className="text-[13px] font-semibold text-[#00E676] uppercase tracking-wide mr-1.5">Do</span>
                 <div className="flex-1 grid grid-cols-6 text-center">
                   {[":00", ":10", ":20", ":30", ":40", ":50"].map(l => (
-                    <span key={l} className="text-[9px] text-[#444] font-mono">{l}</span>
+                    <span key={l} className="text-[11px] text-[#555] font-mono">{l}</span>
                   ))}
                 </div>
               </div>
@@ -718,7 +718,7 @@ function TimeboxGrid({ events: rawEvents, planBlocks, date, onPlanAdd, onPlanDel
                   {plans.map(({ pb, color }) => (
                     <div key={pb.id} className="flex items-center gap-1 group leading-tight">
                       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                      <span className="text-[11px] text-[#bbb] truncate flex-1">{pb.title}</span>
+                      <span className="text-[13px] text-[#bbb] truncate flex-1">{pb.title}</span>
                       <button onClick={() => onPlanDelete(pb.id)}
                         className="opacity-0 group-hover:opacity-100 shrink-0 transition-opacity">
                         <X className="w-2.5 h-2.5 text-[#555] hover:text-[#ff4757]" />
@@ -726,12 +726,12 @@ function TimeboxGrid({ events: rawEvents, planBlocks, date, onPlanAdd, onPlanDel
                     </div>
                   ))}
                   {plans.length === 0 && h === startHour + 9 && placedPlans.length === 0 && (
-                    <button onClick={() => setShowAddPlan(true)} className="text-[9px] text-[#333] hover:text-[#666]">+ 추가</button>
+                    <button onClick={() => setShowAddPlan(true)} className="text-[11px] text-[#444] hover:text-[#888]">+ 추가</button>
                   )}
                 </td>
                 {/* T — time label — SECOND column */}
                 <td className="text-center align-top pt-0.5" style={{ borderRight: "1px solid #222" }}>
-                  <span className="text-[10px] text-[#444] font-mono leading-none">{h % 24}</span>
+                  <span className="text-[12px] text-[#555] font-mono leading-none">{h % 24}</span>
                 </td>
                 {/* Do — 6 cells — THIRD column */}
                 <td className="p-0">
@@ -756,12 +756,12 @@ function TimeboxGrid({ events: rawEvents, planBlocks, date, onPlanAdd, onPlanDel
                             borderRight: s < 5 ? "1px solid #1a1a1a" : "none",
                           }}>
                           {label && (
-                            <span className="text-[9px] leading-none truncate px-0.5" style={{ color }}>
+                            <span className="text-[11px] leading-none truncate px-0.5" style={{ color }}>
                               {label}
                             </span>
                           )}
                           {multiSession && (
-                            <span className="absolute top-0 right-0.5 text-[7px] text-[#555]">{evs.length}</span>
+                            <span className="absolute top-0 right-0.5 text-[9px] text-[#666]">{evs.length}</span>
                           )}
                         </div>
                       );
@@ -919,9 +919,9 @@ function HourlySummary({ events }: { events: ActivityEvent[] }) {
         const { titles, cats } = hourMap[h];
         const catLabel = [...cats].map(c => CAT_LABELS[c] || c).join("/");
         return (
-          <div key={h} className="flex gap-3 text-[12px] leading-relaxed">
+          <div key={h} className="flex gap-3 text-[14px] leading-relaxed">
             <span className="text-[#555] font-mono w-6 shrink-0">{h}</span>
-            <span className="text-[#00E676] w-10 shrink-0">{catLabel}</span>
+            <span className="text-[#00E676] w-12 shrink-0">{catLabel}</span>
             <span className="text-[#999] truncate">{titles.join(" · ")}</span>
           </div>
         );
@@ -946,12 +946,12 @@ function ProjectSummary({ events }: { events: ActivityEvent[] }) {
     <div className="space-y-3">
       {projects.map(([proj, titles]) => (
         <div key={proj}>
-          <div className="text-[12px] font-semibold text-white mb-0.5">{proj} <span className="text-[#555] font-normal">({titles.length}건)</span></div>
+          <div className="text-[14px] font-semibold text-white mb-0.5">{proj} <span className="text-[#555] font-normal">({titles.length}건)</span></div>
           <div className="space-y-0.5 pl-3">
             {titles.slice(0, 5).map((t, i) => (
-              <div key={i} className="text-[11px] text-[#888] truncate">· {t}</div>
+              <div key={i} className="text-[13px] text-[#888] truncate">· {t}</div>
             ))}
-            {titles.length > 5 && <div className="text-[10px] text-[#555]">+{titles.length - 5}건 더</div>}
+            {titles.length > 5 && <div className="text-[12px] text-[#555]">+{titles.length - 5}건 더</div>}
           </div>
         </div>
       ))}
@@ -983,9 +983,9 @@ function AiInsight({ date, eventCount }: { date: string; eventCount: number }) {
       <div className="flex items-start gap-2.5">
         <Star className="w-3.5 h-3.5 text-[#FFD740] mt-0.5 shrink-0" />
         {loading ? (
-          <div className="text-[12px] text-[#555] italic">AI 분석 중...</div>
+          <div className="text-[14px] text-[#555] italic">AI 분석 중...</div>
         ) : (
-          <p className="text-[12px] text-[#999] leading-relaxed whitespace-pre-wrap line-clamp-3 italic">{insight}</p>
+          <p className="text-[14px] text-[#999] leading-relaxed whitespace-pre-wrap line-clamp-3 italic">{insight}</p>
         )}
       </div>
     </div>
@@ -1190,7 +1190,7 @@ function YearlyView({ data }: { data: TimeViewYearly | null }) {
 function Card({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={`bg-[#141414] border border-[#1e1e1e] rounded-lg p-4 ${className}`}>
-      {title && <div className="text-[11px] font-semibold text-[#555] uppercase tracking-wide mb-3">{title}</div>}
+      {title && <div className="text-[13px] font-semibold text-[#555] uppercase tracking-wide mb-3">{title}</div>}
       {children}
     </div>
   );
